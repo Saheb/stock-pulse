@@ -46,7 +46,6 @@ const elements = {
     statRSI: document.getElementById('statRSI'),
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
-    statPE: document.getElementById('statPE'),
     tickerChips: document.querySelectorAll('.ticker-chip'),
     btnText: document.querySelector('.btn-text'),
     btnLoader: document.querySelector('.btn-loader')
@@ -134,11 +133,7 @@ async function loadStockData(ticker, stockName = null) {
     currentTicker = ticker;
 
     try {
-        // Fetch chart data and quote data in parallel
-        const [data, quoteData] = await Promise.all([
-            fetchStockData(ticker),
-            fetchQuoteData(ticker)
-        ]);
+        const data = await fetchStockData(ticker);
 
         if (data.error) {
             showError(data.error);
@@ -171,9 +166,6 @@ async function loadStockData(ticker, stockName = null) {
 
         const stats = calculateStats(prices, movingAverages);
 
-        // Add P/E ratio from quote data
-        stats.peRatio = quoteData?.peRatio || null;
-
         // Use stockName if provided, otherwise use ticker
         const displayName = stockName || ticker;
 
@@ -186,31 +178,6 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
-// ===== Fetch Quote Data (for P/E and other fundamentals) =====
-async function fetchQuoteData(ticker) {
-    try {
-        // Use v7 quote API which provides P/E ratio data
-        const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`;
-        const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(quoteUrl)}`;
-
-        const response = await fetch(url);
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        const quote = data?.quoteResponse?.result?.[0];
-
-        if (!quote) return null;
-
-        return {
-            peRatio: quote.trailingPE || quote.forwardPE || null,
-            marketCap: quote.marketCap || null,
-            dividendYield: quote.dividendYield || null
-        };
-    } catch (error) {
-        console.error('Error fetching quote data:', error);
-        return null;
-    }
-}
 
 // ===== Fetch Stock Data =====
 async function fetchStockData(ticker) {
@@ -418,13 +385,6 @@ function updateUI(ticker, displayName, stats) {
     } else {
         elements.statRSI.textContent = '--';
         elements.rsiHint.textContent = '';
-    }
-
-    // Update P/E ratio
-    if (stats.peRatio !== null && stats.peRatio !== undefined) {
-        elements.statPE.textContent = stats.peRatio.toFixed(1);
-    } else {
-        elements.statPE.textContent = '--';
     }
 }
 

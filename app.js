@@ -189,7 +189,8 @@ async function loadStockData(ticker, stockName = null) {
 // ===== Fetch Quote Data (for P/E and other fundamentals) =====
 async function fetchQuoteData(ticker) {
     try {
-        const quoteUrl = `https://query1.finance.yahoo.com/v6/finance/quote?symbols=${ticker}`;
+        // Use v7 quote API which provides P/E ratio data
+        const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`;
         const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(quoteUrl)}`;
 
         const response = await fetch(url);

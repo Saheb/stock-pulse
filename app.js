@@ -3,8 +3,8 @@ const CONFIG = {
     // Yahoo Finance via query1.finance.yahoo.com (no API key needed)
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
-    // CORS proxy to bypass browser restrictions (allorigins is more reliable for production)
-    CORS_PROXY: 'https://api.allorigins.win/raw?url=',
+    // CORS proxy to bypass browser restrictions
+    CORS_PROXY: 'https://thingproxy.freeboard.io/fetch/',
 
     // Chart colors
     COLORS: {

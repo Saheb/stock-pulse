@@ -43,6 +43,10 @@ const elements = {
     statMA365: document.getElementById('statMA365'),
     statHigh: document.getElementById('statHigh'),
     statLow: document.getElementById('statLow'),
+    statRSI: document.getElementById('statRSI'),
+    rsiCard: document.getElementById('rsiCard'),
+    rsiHint: document.getElementById('rsiHint'),
+    statPE: document.getElementById('statPE'),
     tickerChips: document.querySelectorAll('.ticker-chip'),
     btnText: document.querySelector('.btn-text'),
     btnLoader: document.querySelector('.btn-loader')
@@ -130,7 +134,12 @@ async function loadStockData(ticker, stockName = null) {
     currentTicker = ticker;
 
     try {
-        const data = await fetchStockData(ticker);
+        // Fetch chart data and quote data in parallel
+        const [data, quoteData] = await Promise.all([
+            fetchStockData(ticker),
+            fetchQuoteData(ticker)
+        ]);
+
         if (data.error) {
             showError(data.error);
             return;
@@ -162,6 +171,9 @@ async function loadStockData(ticker, stockName = null) {
 
         const stats = calculateStats(prices, movingAverages);
 
+        // Add P/E ratio from quote data
+        stats.peRatio = quoteData?.peRatio || null;
+
         // Use stockName if provided, otherwise use ticker
         const displayName = stockName || ticker;
 
@@ -171,6 +183,31 @@ async function loadStockData(ticker, stockName = null) {
     } catch (error) {
         console.error('Error loading stock data:', error);
         showError('Failed to fetch stock data. Please try again later.');
+    }
+}
+
+// ===== Fetch Quote Data (for P/E and other fundamentals) =====
+async function fetchQuoteData(ticker) {
+    try {
+        const quoteUrl = `https://query1.finance.yahoo.com/v6/finance/quote?symbols=${ticker}`;
+        const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(quoteUrl)}`;
+
+        const response = await fetch(url);
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        const quote = data?.quoteResponse?.result?.[0];
+
+        if (!quote) return null;
+
+        return {
+            peRatio: quote.trailingPE || quote.forwardPE || null,
+            marketCap: quote.marketCap || null,
+            dividendYield: quote.dividendYield || null
+        };
+    } catch (error) {
+        console.error('Error fetching quote data:', error);
+        return null;
     }
 }
 
@@ -260,6 +297,55 @@ function calculateMovingAverage(prices, period) {
     return ma;
 }
 
+// ===== Calculate RSI (Relative Strength Index) =====
+function calculateRSI(prices, period = 14) {
+    if (prices.length < period + 1) {
+        return null;
+    }
+
+    // Calculate daily price changes
+    const changes = [];
+    for (let i = 1; i < prices.length; i++) {
+        changes.push(prices[i] - prices[i - 1]);
+    }
+
+    // Separate gains and losses
+    let avgGain = 0;
+    let avgLoss = 0;
+
+    // Initial average (first 'period' days)
+    for (let i = 0; i < period; i++) {
+        if (changes[i] > 0) {
+            avgGain += changes[i];
+        } else {
+            avgLoss += Math.abs(changes[i]);
+        }
+    }
+    avgGain /= period;
+    avgLoss /= period;
+
+    // Calculate RSI using smoothed averages for remaining days
+    for (let i = period; i < changes.length; i++) {
+        const change = changes[i];
+        if (change > 0) {
+            avgGain = (avgGain * (period - 1) + change) / period;
+            avgLoss = (avgLoss * (period - 1)) / period;
+        } else {
+            avgGain = (avgGain * (period - 1)) / period;
+            avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;
+        }
+    }
+
+    // Calculate RSI
+    if (avgLoss === 0) {
+        return 100; // No losses means RSI is 100
+    }
+    const rs = avgGain / avgLoss;
+    const rsi = 100 - (100 / (1 + rs));
+
+    return rsi;
+}
+
 // ===== Calculate Statistics =====
 function calculateStats(prices, movingAverages) {
     const currentPrice = prices[prices.length - 1];
@@ -277,13 +363,17 @@ function calculateStats(prices, movingAverages) {
     const high52Week = Math.max(...prices.slice(-252)); // ~252 trading days in a year
     const low52Week = Math.min(...prices.slice(-252));
 
+    // Calculate RSI (14-day)
+    const rsi = calculateRSI(prices, 14);
+
     return {
         currentPrice,
         priceChange,
         priceChangePercent,
         currentMAs,
         high52Week,
-        low52Week
+        low52Week,
+        rsi
     };
 }
 
@@ -307,6 +397,34 @@ function updateUI(ticker, displayName, stats) {
     elements.statMA365.textContent = formatCurrency(stats.currentMAs[365]);
     elements.statHigh.textContent = formatCurrency(stats.high52Week);
     elements.statLow.textContent = formatCurrency(stats.low52Week);
+
+    // Update RSI with overbought/oversold indicators
+    if (stats.rsi !== null) {
+        elements.statRSI.textContent = stats.rsi.toFixed(1);
+
+        // Remove previous classes
+        elements.rsiCard.classList.remove('rsi-overbought', 'rsi-oversold');
+
+        if (stats.rsi >= 70) {
+            elements.rsiCard.classList.add('rsi-overbought');
+            elements.rsiHint.textContent = 'Overbought';
+        } else if (stats.rsi <= 30) {
+            elements.rsiCard.classList.add('rsi-oversold');
+            elements.rsiHint.textContent = 'Oversold';
+        } else {
+            elements.rsiHint.textContent = 'Neutral';
+        }
+    } else {
+        elements.statRSI.textContent = '--';
+        elements.rsiHint.textContent = '';
+    }
+
+    // Update P/E ratio
+    if (stats.peRatio !== null && stats.peRatio !== undefined) {
+        elements.statPE.textContent = stats.peRatio.toFixed(1);
+    } else {
+        elements.statPE.textContent = '--';
+    }
 }
 
 // ===== Render Chart =====

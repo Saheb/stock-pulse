@@ -533,6 +533,44 @@ body {
     color: var(--text-primary);
 }
 
+/* RSI Indicator styling */
+.stat-rsi.rsi-overbought {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.stat-rsi.rsi-overbought .stat-value {
+    color: var(--error);
+}
+
+.stat-rsi.rsi-oversold {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.stat-rsi.rsi-oversold .stat-value {
+    color: var(--success);
+}
+
+.stat-hint {
+    display: block;
+    font-size: 0.75rem;
+    margin-top: var(--space-xs);
+    font-weight: 500;
+}
+
+.stat-rsi.rsi-overbought .stat-hint {
+    color: var(--error);
+}
+
+.stat-rsi.rsi-oversold .stat-hint {
+    color: var(--success);
+}
+
+.stat-rsi .stat-hint {
+    color: var(--text-muted);
+}
+
 /* ===== Footer ===== */
 .footer {
     text-align: center;

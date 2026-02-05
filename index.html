@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockPulse - Personal Finance Tracker</title>
+    <meta name="description" content="Track your favorite stocks with interactive charts and 200-day moving averages">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <div class="background-effects">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+    </div>
+
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">📈</span>
+                <h1>StockPulse</h1>
+            </div>
+            <p class="tagline">Track stocks with 200 & 365-day moving averages</p>
+        </header>
+
+        <main class="main-content">
+            <section class="ticker-selector glass-card">
+                <h2>Select a Stock</h2>
+                <div class="search-wrapper">
+                    <input type="text" id="tickerInput" placeholder="Enter ticker or stock name (e.g., AAPL or Apple)"
+                        autocomplete="off">
+                    <button id="searchBtn" class="btn-primary">
+                        <span class="btn-text">Load Chart</span>
+                        <span class="btn-loader" hidden></span>
+                    </button>
+                </div>
+                <div class="popular-tickers">
+                    <span class="label">Popular:</span>
+                    <button class="ticker-chip" data-ticker="AAPL">AAPL</button>
+                    <button class="ticker-chip" data-ticker="GOOGL">GOOGL</button>
+                    <button class="ticker-chip" data-ticker="MSFT">MSFT</button>
+                    <button class="ticker-chip" data-ticker="AMZN">AMZN</button>
+                    <button class="ticker-chip" data-ticker="TSLA">TSLA</button>
+                    <button class="ticker-chip" data-ticker="NVDA">NVDA</button>
+                </div>
+            </section>
+
+            <section class="chart-section glass-card" id="chartSection">
+                <div class="chart-header">
+                    <div class="stock-info">
+                        <h3 id="stockName">Select a stock to view</h3>
+                        <div class="price-info" id="priceInfo" hidden>
+                            <span class="current-price" id="currentPrice"></span>
+                            <span class="price-change" id="priceChange"></span>
+                        </div>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-color price-color"></span>
+                            <span>Price</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color ma200-color"></span>
+                            <span>200-Day MA</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color ma365-color"></span>
+                            <span>365-Day MA</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="stockChart"></canvas>
+                    <div class="chart-placeholder" id="chartPlaceholder">
+                        <div class="placeholder-icon">📊</div>
+                        <p>Enter a ticker symbol above to view the stock chart</p>
+                    </div>
+                    <div class="chart-loading" id="chartLoading" hidden>
+                        <div class="loading-spinner"></div>
+                        <p>Loading stock data...</p>
+                    </div>
+                    <div class="chart-error" id="chartError" hidden>
+                        <div class="error-icon">⚠️</div>
+                        <p id="errorMessage">Unable to load stock data</p>
+                        <button class="btn-secondary" id="retryBtn">Try Again</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="stats-section" id="statsSection" hidden>
+                <div class="stat-card glass-card">
+                    <span class="stat-label">Current Price</span>
+                    <span class="stat-value" id="statPrice">--</span>
+                </div>
+                <div class="stat-card glass-card stat-ma200">
+                    <span class="stat-label">200-Day MA</span>
+                    <span class="stat-value" id="statMA200">--</span>
+                </div>
+                <div class="stat-card glass-card stat-ma365">
+                    <span class="stat-label">365-Day MA</span>
+                    <span class="stat-value" id="statMA365">--</span>
+                </div>
+                <div class="stat-card glass-card">
+                    <span class="stat-label">52-Week High</span>
+                    <span class="stat-value" id="statHigh">--</span>
+                </div>
+                <div class="stat-card glass-card">
+                    <span class="stat-label">52-Week Low</span>
+                    <span class="stat-value" id="statLow">--</span>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>Data provided by Yahoo Finance</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

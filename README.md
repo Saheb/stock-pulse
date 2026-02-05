@@ -14,6 +14,10 @@ A beautiful stock tracker webapp with 200-day and 365-day moving averages.
 
 ## Live Demo
 
+🚀 **[stock-pulse-7ok.pages.dev](https://stock-pulse-7ok.pages.dev)**
+
+## How to Run Locally
+
 Open `index.html` in your browser, or run a local server:
 
 ```bash

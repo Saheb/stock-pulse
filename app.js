@@ -374,11 +374,15 @@ function calculateStats(prices, movingAverages) {
     // Calculate RSI (14-day)
     const rsi = calculateRSI(prices, 14);
 
-    // Calculate multi-year returns (252 trading days ≈ 1 year)
+    // Calculate multi-year returns (250 trading days ≈ 1 year, allowing slight tolerance)
     const calculateReturn = (yearsAgo) => {
-        const daysAgo = yearsAgo * 252;
-        if (prices.length < daysAgo) return null;
-        const pastPrice = prices[prices.length - daysAgo];
+        const daysAgo = yearsAgo * 250; // Use 250 instead of 252 for tolerance
+        // Allow 5% tolerance in case of slight data variance
+        const minRequired = Math.floor(daysAgo * 0.95);
+        if (prices.length < minRequired) return null;
+        // Use the closest available data point
+        const actualIndex = Math.max(0, prices.length - daysAgo);
+        const pastPrice = prices[actualIndex];
         return ((currentPrice - pastPrice) / pastPrice) * 100;
     };
 

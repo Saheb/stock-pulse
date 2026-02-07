@@ -375,7 +375,8 @@ function calculateStats(prices, movingAverages) {
     const rsi = calculateRSI(prices, 14);
 
     // Calculate multi-year returns (250 trading days ≈ 1 year, allowing slight tolerance)
-    const calculateReturn = (yearsAgo) => {
+    // For multi-year, use CAGR (Compound Annual Growth Rate) to normalize to yearly
+    const calculateReturn = (yearsAgo, annualize = false) => {
         const daysAgo = yearsAgo * 250; // Use 250 instead of 252 for tolerance
         // Allow 5% tolerance in case of slight data variance
         const minRequired = Math.floor(daysAgo * 0.95);
@@ -383,12 +384,18 @@ function calculateStats(prices, movingAverages) {
         // Use the closest available data point
         const actualIndex = Math.max(0, prices.length - daysAgo);
         const pastPrice = prices[actualIndex];
+
+        if (annualize && yearsAgo > 1) {
+            // CAGR formula: (endValue/startValue)^(1/years) - 1
+            const cagr = (Math.pow(currentPrice / pastPrice, 1 / yearsAgo) - 1) * 100;
+            return cagr;
+        }
         return ((currentPrice - pastPrice) / pastPrice) * 100;
     };
 
-    const return1y = calculateReturn(1);
-    const return3y = calculateReturn(3);
-    const return5y = calculateReturn(5);
+    const return1y = calculateReturn(1, false);  // 1-year is already annual
+    const return3y = calculateReturn(3, true);   // Annualized (CAGR)
+    const return5y = calculateReturn(5, true);   // Annualized (CAGR)
 
     return {
         currentPrice,

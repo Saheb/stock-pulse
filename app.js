@@ -51,6 +51,12 @@ const elements = {
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
     statPE: document.getElementById('statPE'),
+    statReturn1y: document.getElementById('statReturn1y'),
+    statReturn3y: document.getElementById('statReturn3y'),
+    statReturn5y: document.getElementById('statReturn5y'),
+    return1yCard: document.getElementById('return1yCard'),
+    return3yCard: document.getElementById('return3yCard'),
+    return5yCard: document.getElementById('return5yCard'),
     tickerChips: document.querySelectorAll('.ticker-chip'),
     btnText: document.querySelector('.btn-text'),
     btnLoader: document.querySelector('.btn-loader')
@@ -368,6 +374,18 @@ function calculateStats(prices, movingAverages) {
     // Calculate RSI (14-day)
     const rsi = calculateRSI(prices, 14);
 
+    // Calculate multi-year returns (252 trading days ≈ 1 year)
+    const calculateReturn = (yearsAgo) => {
+        const daysAgo = yearsAgo * 252;
+        if (prices.length < daysAgo) return null;
+        const pastPrice = prices[prices.length - daysAgo];
+        return ((currentPrice - pastPrice) / pastPrice) * 100;
+    };
+
+    const return1y = calculateReturn(1);
+    const return3y = calculateReturn(3);
+    const return5y = calculateReturn(5);
+
     return {
         currentPrice,
         priceChange,
@@ -375,7 +393,10 @@ function calculateStats(prices, movingAverages) {
         currentMAs,
         high52Week,
         low52Week,
-        rsi
+        rsi,
+        return1y,
+        return3y,
+        return5y
     };
 }
 
@@ -427,6 +448,22 @@ function updateUI(ticker, displayName, stats) {
     } else {
         elements.statPE.textContent = '--';
     }
+
+    // Update multi-year returns
+    const updateReturn = (value, element, card) => {
+        card.classList.remove('return-positive', 'return-negative');
+        if (value !== null) {
+            const sign = value >= 0 ? '+' : '';
+            element.textContent = `${sign}${value.toFixed(1)}%`;
+            card.classList.add(value >= 0 ? 'return-positive' : 'return-negative');
+        } else {
+            element.textContent = '--';
+        }
+    };
+
+    updateReturn(stats.return1y, elements.statReturn1y, elements.return1yCard);
+    updateReturn(stats.return3y, elements.statReturn3y, elements.return3yCard);
+    updateReturn(stats.return5y, elements.statReturn5y, elements.return5yCard);
 }
 
 // ===== Render Chart =====

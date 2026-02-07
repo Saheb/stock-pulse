@@ -571,6 +571,15 @@ body {
     color: var(--text-muted);
 }
 
+/* Return Card styling (positive/negative) */
+.stat-return.return-positive .stat-value {
+    color: var(--success);
+}
+
+.stat-return.return-negative .stat-value {
+    color: var(--error);
+}
+
 /* ===== Footer ===== */
 .footer {
     text-align: center;

@@ -51,6 +51,7 @@ const elements = {
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
     statPE: document.getElementById('statPE'),
+    statProfitMargin: document.getElementById('statProfitMargin'),
     statReturn1y: document.getElementById('statReturn1y'),
     statReturn3y: document.getElementById('statReturn3y'),
     statReturn5y: document.getElementById('statReturn5y'),
@@ -144,10 +145,10 @@ async function loadStockData(ticker, stockName = null) {
     currentTicker = ticker;
 
     try {
-        // Fetch chart data and P/E ratio in parallel
-        const [data, peRatio] = await Promise.all([
+        // Fetch chart data and fundamentals in parallel
+        const [data, fundamentals] = await Promise.all([
             fetchStockData(ticker),
-            fetchPERatio(ticker)
+            fetchFundamentals(ticker)
         ]);
 
         if (data.error) {
@@ -180,7 +181,8 @@ async function loadStockData(ticker, stockName = null) {
         });
 
         const stats = calculateStats(prices, movingAverages);
-        stats.peRatio = peRatio;
+        stats.peRatio = fundamentals.peRatio;
+        stats.profitMargin = fundamentals.profitMargin;
 
         // Use stockName if provided, otherwise use ticker
         const displayName = stockName || ticker;
@@ -194,27 +196,32 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
-// ===== Fetch P/E Ratio from Alpha Vantage =====
-async function fetchPERatio(ticker) {
+// ===== Fetch Fundamentals from Alpha Vantage =====
+async function fetchFundamentals(ticker) {
     try {
         const url = `${CONFIG.ALPHA_VANTAGE_BASE}?function=OVERVIEW&symbol=${ticker}&apikey=${CONFIG.ALPHA_VANTAGE_API_KEY}`;
         const response = await fetch(url);
 
-        if (!response.ok) return null;
+        if (!response.ok) return { peRatio: null, profitMargin: null };
 
         const data = await response.json();
 
         // Check for API limit or error messages
-        if (data.Note || data['Error Message'] || !data.PERatio) {
-            console.warn('Alpha Vantage:', data.Note || data['Error Message'] || 'No P/E data');
-            return null;
+        if (data.Note || data['Error Message']) {
+            console.warn('Alpha Vantage:', data.Note || data['Error Message']);
+            return { peRatio: null, profitMargin: null };
         }
 
         const pe = parseFloat(data.PERatio);
-        return isNaN(pe) ? null : pe;
+        const margin = parseFloat(data.ProfitMargin);
+
+        return {
+            peRatio: isNaN(pe) ? null : pe,
+            profitMargin: isNaN(margin) ? null : margin * 100  // Convert to percentage
+        };
     } catch (error) {
-        console.error('Error fetching P/E ratio:', error);
-        return null;
+        console.error('Error fetching fundamentals:', error);
+        return { peRatio: null, profitMargin: null };
     }
 }
 
@@ -458,6 +465,13 @@ function updateUI(ticker, displayName, stats) {
         elements.statPE.textContent = stats.peRatio.toFixed(1);
     } else {
         elements.statPE.textContent = '--';
+    }
+
+    // Update Profit Margin
+    if (stats.profitMargin !== null && stats.profitMargin !== undefined) {
+        elements.statProfitMargin.textContent = `${stats.profitMargin.toFixed(1)}%`;
+    } else {
+        elements.statProfitMargin.textContent = '--';
     }
 
     // Update multi-year returns

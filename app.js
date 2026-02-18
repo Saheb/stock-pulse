@@ -3,9 +3,12 @@ const CONFIG = {
     // Yahoo Finance APIs (no API key needed)
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
-    YAHOO_QUOTE_SUMMARY: 'https://query1.finance.yahoo.com/v10/finance/quoteSummary',
     // Use our own Cloudflare Pages Function as proxy
     CORS_PROXY: '/api/proxy?url=',
+
+    // Financial Modeling Prep API for fundamentals (P/E ratio, PEG ratio, Profit Margin)
+    FMP_API_KEY: 'ZD3PQ1omaGx9Ydk3W6gL2HQyomQw0vxZ',
+    FMP_BASE: 'https://financialmodelingprep.com/api/v3',
 
     // Chart colors
     COLORS: {
@@ -195,46 +198,50 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
-// ===== Fetch Fundamentals from Yahoo Finance =====
+// ===== Fetch Fundamentals from Financial Modeling Prep =====
 async function fetchFundamentals(ticker) {
-    try {
-        // Use quoteSummary endpoint for fundamental data
-        const modules = 'defaultKeyStatistics,summaryDetail';
-        const yahooUrl = `${CONFIG.YAHOO_QUOTE_SUMMARY}/${ticker}?modules=${modules}`;
-        const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(yahooUrl)}`;
+    // Check cache first (cache for 24 hours)
+    const cacheKey = `fundamentals_${ticker}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        const age = Date.now() - timestamp;
+        const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+        if (age < oneDay) {
+            return data;
+        }
+    }
 
+    try {
+        const url = `${CONFIG.FMP_BASE}/ratios/${ticker}?apikey=${CONFIG.FMP_API_KEY}`;
         const response = await fetch(url);
 
         if (!response.ok) {
-            console.warn('Yahoo Finance fundamentals error:', response.status);
+            console.warn('FMP API error:', response.status);
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 
         const data = await response.json();
 
-        // Check for API errors
-        if (data.quoteSummary?.error) {
-            console.warn('Yahoo Finance:', data.quoteSummary.error);
+        if (!Array.isArray(data) || data.length === 0) {
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 
-        const result = data.quoteSummary?.result?.[0];
-        if (!result) {
-            return { peRatio: null, pegRatio: null, profitMargin: null };
-        }
+        const ratios = data[0];
 
-        // Extract P/E ratio (trailing P/E from summaryDetail)
-        const pe = result.summaryDetail?.trailingPE;
-        // Extract PEG ratio from defaultKeyStatistics
-        const peg = result.defaultKeyStatistics?.pegRatio;
-        // Extract profit margins from defaultKeyStatistics
-        const margin = result.defaultKeyStatistics?.profitMargins;
-
-        return {
-            peRatio: pe != null && !isNaN(pe) ? pe : null,
-            pegRatio: peg != null && !isNaN(peg) ? peg : null,
-            profitMargin: margin != null && !isNaN(margin) ? margin * 100 : null  // Convert to percentage
+        const result = {
+            peRatio: ratios.peRatio != null && !isNaN(ratios.peRatio) ? ratios.peRatio : null,
+            pegRatio: ratios.pegRatio != null && !isNaN(ratios.pegRatio) ? ratios.pegRatio : null,
+            profitMargin: ratios.netProfitMarginTTM != null && !isNaN(ratios.netProfitMarginTTM) ? ratios.netProfitMarginTTM * 100 : null
         };
+
+        // Cache the result
+        localStorage.setItem(cacheKey, JSON.stringify({
+            data: result,
+            timestamp: Date.now()
+        }));
+
+        return result;
     } catch (error) {
         console.error('Error fetching fundamentals:', error);
         return { peRatio: null, pegRatio: null, profitMargin: null };

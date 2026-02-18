@@ -70,13 +70,14 @@ git push origin main
 - Calculates moving averages on full dataset for accuracy
 - Displays last 500 trading days (~2 years) on the chart
 - Uses CORS proxy for browser-side API access
-- Fetches fundamental data (P/E, PEG, Profit Margin) from Yahoo Finance
+- Fetches fundamental data (P/E, PEG, Profit Margin) from **Alpha Vantage**
 
 ## Tech Stack
 
 - **Vanilla JavaScript** - No frameworks
 - **Chart.js** - Interactive chart rendering
-- **Yahoo Finance API** - Stock data, search, and fundamentals
+- **Yahoo Finance API** - Stock price history and search
+- **Alpha Vantage API** - Fundamental data (P/E, PEG, Profit Margin)
 - **Cloudflare Pages** - Hosting and serverless functions
 
 ## Files

@@ -6,9 +6,10 @@ const CONFIG = {
     // Use our own Cloudflare Pages Function as proxy
     CORS_PROXY: '/api/proxy?url=',
 
-    // Financial Modeling Prep API for fundamentals (P/E ratio, PEG ratio, Profit Margin)
-    FMP_API_KEY: 'ZD3PQ1omaGx9Ydk3W6gL2HQyomQw0vxZ',
-    FMP_BASE: 'https://financialmodelingprep.com/api/v3',
+    // Alpha Vantage API for fundamentals (P/E ratio, PEG ratio, Profit Margin)
+    // Rate limit: 25 requests per day for free tier. Caching is CRITICAL.
+    ALPHA_VANTAGE_API_KEY: 'CINL1OCBZCIHPGBA', // Key from previous commit
+    ALPHA_VANTAGE_BASE: 'https://www.alphavantage.co/query',
 
     // Chart colors
     COLORS: {
@@ -51,8 +52,11 @@ const elements = {
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
     statPE: document.getElementById('statPE'),
+    peCard: document.getElementById('statPE').closest('.stat-card'),
     statPEG: document.getElementById('statPEG'),
+    pegCard: document.getElementById('statPEG').closest('.stat-card'),
     statProfitMargin: document.getElementById('statProfitMargin'),
+    profitMarginCard: document.getElementById('statProfitMargin').closest('.stat-card'),
     statReturn1y: document.getElementById('statReturn1y'),
     statReturn3y: document.getElementById('statReturn3y'),
     statReturn5y: document.getElementById('statReturn5y'),
@@ -149,7 +153,7 @@ async function loadStockData(ticker, stockName = null) {
         // Fetch chart data and fundamentals in parallel
         const [data, fundamentals] = await Promise.all([
             fetchStockData(ticker),
-            fetchFundamentals(ticker)
+            fetchFundamentalsAlphaVantage(ticker)
         ]);
 
         if (data.error) {
@@ -198,41 +202,47 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
-// ===== Fetch Fundamentals from Financial Modeling Prep =====
-async function fetchFundamentals(ticker) {
+// ===== Fetch Fundamentals from Alpha Vantage with Caching =====
+async function fetchFundamentalsAlphaVantage(ticker) {
     // Check cache first (cache for 24 hours)
-    const cacheKey = `fundamentals_${ticker}`;
+    const cacheKey = `av_overview_${ticker}`;
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
         const { data, timestamp } = JSON.parse(cached);
         const age = Date.now() - timestamp;
         const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
         if (age < oneDay) {
+            console.log('Using cached Alpha Vantage data for', ticker);
             return data;
         }
     }
 
     try {
-        const url = `${CONFIG.FMP_BASE}/ratios/${ticker}?apikey=${CONFIG.FMP_API_KEY}`;
+        // Alpha Vantage OVERVIEW endpoint
+        const url = `${CONFIG.ALPHA_VANTAGE_BASE}?function=OVERVIEW&symbol=${ticker}&apikey=${CONFIG.ALPHA_VANTAGE_API_KEY}`;
+
+        // Note: Alpha Vantage requests usually don't need a CORS proxy if called directly from browser,
+        // but if it fails, we might need to route through our proxy.
+        // Let's try direct first.
         const response = await fetch(url);
 
         if (!response.ok) {
-            console.warn('FMP API error:', response.status);
+            console.warn('Alpha Vantage API error:', response.status);
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 
         const data = await response.json();
 
-        if (!Array.isArray(data) || data.length === 0) {
+        // Check for API limit message or empty object
+        if (data.Note || JSON.stringify(data) === '{}') {
+            console.warn('Alpha Vantage API limit reached or no data:', data);
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 
-        const ratios = data[0];
-
         const result = {
-            peRatio: ratios.peRatio != null && !isNaN(ratios.peRatio) ? ratios.peRatio : null,
-            pegRatio: ratios.pegRatio != null && !isNaN(ratios.pegRatio) ? ratios.pegRatio : null,
-            profitMargin: ratios.netProfitMarginTTM != null && !isNaN(ratios.netProfitMarginTTM) ? ratios.netProfitMarginTTM * 100 : null
+            peRatio: data.PERatio && data.PERatio !== 'None' ? parseFloat(data.PERatio) : null,
+            pegRatio: data.PEGRatio && data.PEGRatio !== 'None' ? parseFloat(data.PEGRatio) : null,
+            profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
         };
 
         // Cache the result
@@ -243,11 +253,10 @@ async function fetchFundamentals(ticker) {
 
         return result;
     } catch (error) {
-        console.error('Error fetching fundamentals:', error);
+        console.error('Error fetching fundamentals from Alpha Vantage:', error);
         return { peRatio: null, pegRatio: null, profitMargin: null };
     }
 }
-
 
 // ===== Fetch Stock Data =====
 async function fetchStockData(ticker) {
@@ -483,25 +492,28 @@ function updateUI(ticker, displayName, stats) {
         elements.rsiHint.textContent = '';
     }
 
-    // Update P/E ratio
+    // Update P/E ratio - Hide if unavailable
     if (stats.peRatio !== null && stats.peRatio !== undefined) {
         elements.statPE.textContent = stats.peRatio.toFixed(1);
+        elements.peCard.hidden = false;
     } else {
-        elements.statPE.textContent = '--';
+        elements.peCard.hidden = true;
     }
 
-    // Update PEG Ratio
+    // Update PEG Ratio - Hide if unavailable
     if (stats.pegRatio !== null && stats.pegRatio !== undefined) {
         elements.statPEG.textContent = stats.pegRatio.toFixed(2);
+        elements.pegCard.hidden = false;
     } else {
-        elements.statPEG.textContent = '--';
+        elements.pegCard.hidden = true;
     }
 
-    // Update Profit Margin
+    // Update Profit Margin - Hide if unavailable
     if (stats.profitMargin !== null && stats.profitMargin !== undefined) {
         elements.statProfitMargin.textContent = `${stats.profitMargin.toFixed(1)}%`;
+        elements.profitMarginCard.hidden = false;
     } else {
-        elements.statProfitMargin.textContent = '--';
+        elements.profitMarginCard.hidden = true;
     }
 
     // Update multi-year returns
@@ -673,6 +685,7 @@ function showLoading() {
     elements.searchBtn.disabled = true;
     elements.btnText.hidden = true;
     elements.btnLoader.hidden = false;
+    elements.statsSection.hidden = true; // Hide stats during load
 
     // Destroy existing chart during loading
     if (stockChart) {
@@ -689,6 +702,7 @@ function showError(message) {
     elements.searchBtn.disabled = false;
     elements.btnText.hidden = false;
     elements.btnLoader.hidden = true;
+    elements.statsSection.hidden = true; // Hide stats on error
 }
 
 function hideAllStates() {

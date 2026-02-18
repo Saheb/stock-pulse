@@ -1,14 +1,11 @@
 // ===== Configuration =====
 const CONFIG = {
-    // Yahoo Finance via query1.finance.yahoo.com (no API key needed)
+    // Yahoo Finance APIs (no API key needed)
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
+    YAHOO_QUOTE_SUMMARY: 'https://query1.finance.yahoo.com/v10/finance/quoteSummary',
     // Use our own Cloudflare Pages Function as proxy
     CORS_PROXY: '/api/proxy?url=',
-
-    // Alpha Vantage API for fundamentals (P/E ratio)
-    ALPHA_VANTAGE_API_KEY: 'CINL1OCBZCIHPGBA',
-    ALPHA_VANTAGE_BASE: 'https://www.alphavantage.co/query',
 
     // Chart colors
     COLORS: {
@@ -51,6 +48,7 @@ const elements = {
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
     statPE: document.getElementById('statPE'),
+    statPEG: document.getElementById('statPEG'),
     statProfitMargin: document.getElementById('statProfitMargin'),
     statReturn1y: document.getElementById('statReturn1y'),
     statReturn3y: document.getElementById('statReturn3y'),
@@ -182,6 +180,7 @@ async function loadStockData(ticker, stockName = null) {
 
         const stats = calculateStats(prices, movingAverages);
         stats.peRatio = fundamentals.peRatio;
+        stats.pegRatio = fundamentals.pegRatio;
         stats.profitMargin = fundamentals.profitMargin;
 
         // Use stockName if provided, otherwise use ticker
@@ -196,32 +195,49 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
-// ===== Fetch Fundamentals from Alpha Vantage =====
+// ===== Fetch Fundamentals from Yahoo Finance =====
 async function fetchFundamentals(ticker) {
     try {
-        const url = `${CONFIG.ALPHA_VANTAGE_BASE}?function=OVERVIEW&symbol=${ticker}&apikey=${CONFIG.ALPHA_VANTAGE_API_KEY}`;
+        // Use quoteSummary endpoint for fundamental data
+        const modules = 'defaultKeyStatistics,summaryDetail';
+        const yahooUrl = `${CONFIG.YAHOO_QUOTE_SUMMARY}/${ticker}?modules=${modules}`;
+        const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(yahooUrl)}`;
+
         const response = await fetch(url);
 
-        if (!response.ok) return { peRatio: null, profitMargin: null };
+        if (!response.ok) {
+            console.warn('Yahoo Finance fundamentals error:', response.status);
+            return { peRatio: null, pegRatio: null, profitMargin: null };
+        }
 
         const data = await response.json();
 
-        // Check for API limit or error messages
-        if (data.Note || data['Error Message']) {
-            console.warn('Alpha Vantage:', data.Note || data['Error Message']);
-            return { peRatio: null, profitMargin: null };
+        // Check for API errors
+        if (data.quoteSummary?.error) {
+            console.warn('Yahoo Finance:', data.quoteSummary.error);
+            return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 
-        const pe = parseFloat(data.PERatio);
-        const margin = parseFloat(data.ProfitMargin);
+        const result = data.quoteSummary?.result?.[0];
+        if (!result) {
+            return { peRatio: null, pegRatio: null, profitMargin: null };
+        }
+
+        // Extract P/E ratio (trailing P/E from summaryDetail)
+        const pe = result.summaryDetail?.trailingPE;
+        // Extract PEG ratio from defaultKeyStatistics
+        const peg = result.defaultKeyStatistics?.pegRatio;
+        // Extract profit margins from defaultKeyStatistics
+        const margin = result.defaultKeyStatistics?.profitMargins;
 
         return {
-            peRatio: isNaN(pe) ? null : pe,
-            profitMargin: isNaN(margin) ? null : margin * 100  // Convert to percentage
+            peRatio: pe != null && !isNaN(pe) ? pe : null,
+            pegRatio: peg != null && !isNaN(peg) ? peg : null,
+            profitMargin: margin != null && !isNaN(margin) ? margin * 100 : null  // Convert to percentage
         };
     } catch (error) {
         console.error('Error fetching fundamentals:', error);
-        return { peRatio: null, profitMargin: null };
+        return { peRatio: null, pegRatio: null, profitMargin: null };
     }
 }
 
@@ -465,6 +481,13 @@ function updateUI(ticker, displayName, stats) {
         elements.statPE.textContent = stats.peRatio.toFixed(1);
     } else {
         elements.statPE.textContent = '--';
+    }
+
+    // Update PEG Ratio
+    if (stats.pegRatio !== null && stats.pegRatio !== undefined) {
+        elements.statPEG.textContent = stats.pegRatio.toFixed(2);
+    } else {
+        elements.statPEG.textContent = '--';
     }
 
     // Update Profit Margin

@@ -48,6 +48,8 @@ const elements = {
     statMA365: document.getElementById('statMA365'),
     statHigh: document.getElementById('statHigh'),
     statLow: document.getElementById('statLow'),
+    statATH: document.getElementById('statATH'),
+    athHint: document.getElementById('athHint'),
     statRSI: document.getElementById('statRSI'),
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
@@ -260,8 +262,8 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
 // ===== Fetch Stock Data =====
 async function fetchStockData(ticker) {
-    // Fetch 5 years of data (to ensure 365-day MA has enough points to display)
-    const range = '5y';
+    // Fetch max data to ensure we can calculate the all-time high
+    const range = 'max';
     const interval = '1d';
     const yahooUrl = `${CONFIG.YAHOO_API_BASE}/${ticker}?range=${range}&interval=${interval}`;
     // Use CORS proxy to bypass browser restrictions
@@ -410,6 +412,9 @@ function calculateStats(prices, movingAverages) {
     const high52Week = Math.max(...prices.slice(-252)); // ~252 trading days in a year
     const low52Week = Math.min(...prices.slice(-252));
 
+    const allTimeHigh = Math.max(...prices);
+    const dropFromATH = ((currentPrice - allTimeHigh) / allTimeHigh) * 100;
+
     // Calculate RSI (14-day)
     const rsi = calculateRSI(prices, 14);
 
@@ -443,6 +448,8 @@ function calculateStats(prices, movingAverages) {
         currentMAs,
         high52Week,
         low52Week,
+        allTimeHigh,
+        dropFromATH,
         rsi,
         return1y,
         return3y,
@@ -470,6 +477,20 @@ function updateUI(ticker, displayName, stats) {
     elements.statMA365.textContent = formatCurrency(stats.currentMAs[365]);
     elements.statHigh.textContent = formatCurrency(stats.high52Week);
     elements.statLow.textContent = formatCurrency(stats.low52Week);
+
+    // Update All-Time High
+    if (elements.statATH) {
+        elements.statATH.textContent = formatCurrency(stats.allTimeHigh);
+        if (elements.athHint) {
+            if (stats.dropFromATH >= 0) {
+                elements.athHint.textContent = 'At ATH';
+                elements.athHint.className = 'stat-hint positive';
+            } else {
+                elements.athHint.textContent = `${stats.dropFromATH.toFixed(1)}% from ATH`;
+                elements.athHint.className = 'stat-hint negative';
+            }
+        }
+    }
 
     // Update RSI with overbought/oversold indicators
     if (stats.rsi !== null) {

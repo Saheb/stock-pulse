@@ -559,6 +559,14 @@ body {
     font-weight: 500;
 }
 
+.stat-hint.positive {
+    color: var(--success);
+}
+
+.stat-hint.negative {
+    color: var(--error);
+}
+
 .stat-rsi.rsi-overbought .stat-hint {
     color: var(--error);
 }

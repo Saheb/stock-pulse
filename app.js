@@ -99,25 +99,38 @@ async function handleSearch() {
         return;
     }
 
-    // A ticker is typically 1-5 uppercase letters only (user types "AAPL" not "Apple")
-    // If query has lowercase letters, it's likely a stock name to search for
-    const isLikelyTicker = /^[A-Z]{1,5}$/.test(query);
+    const TICKER_ALIASES = {
+        'VWRP': 'VWRP.L',
+        'VUAG': 'VUAG.L'
+    };
 
-    let ticker = query.toUpperCase();
+    let searchString = query;
+    let upperQuery = query.toUpperCase();
+    if (TICKER_ALIASES[upperQuery]) {
+        searchString = TICKER_ALIASES[upperQuery];
+    }
+
+    // A ticker is typically 1-5 uppercase letters optionally followed by an exchange suffix (e.g. .L)
+    const isLikelyTicker = /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/.test(searchString.toUpperCase());
+
+    let ticker = searchString.toUpperCase();
     let stockName = ticker;
 
     // If it doesn't look like a ticker, search for the stock
-    if (!isLikelyTicker || query.includes(' ')) {
+    if (!isLikelyTicker || searchString.includes(' ')) {
         showLoading();
-        const searchResult = await searchStock(query);
+        const searchResult = await searchStock(searchString);
         if (searchResult) {
             ticker = searchResult.symbol;
             stockName = searchResult.name;
             elements.tickerInput.value = ticker;
         } else {
             // Try as ticker anyway
-            ticker = query.toUpperCase().replace(/[^A-Z]/g, '');
+            ticker = searchString.toUpperCase().replace(/[^A-Z.]/g, '');
         }
+    } else if (TICKER_ALIASES[upperQuery]) {
+        // Update input field to show the resolved ticker
+        elements.tickerInput.value = ticker;
     }
 
     await loadStockData(ticker, stockName);

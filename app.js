@@ -8,8 +8,7 @@ const CONFIG = {
 
     // Alpha Vantage API for fundamentals (P/E ratio, PEG ratio, Profit Margin)
     // Rate limit: 25 requests per day for free tier. Caching is CRITICAL.
-    ALPHA_VANTAGE_API_KEY: 'CINL1OCBZCIHPGBA', // Key from previous commit
-    ALPHA_VANTAGE_BASE: 'https://www.alphavantage.co/query',
+    ALPHA_VANTAGE_ENDPOINT: '/api/fundamentals?symbol=',
 
     // Chart colors
     COLORS: {
@@ -233,16 +232,13 @@ async function fetchFundamentalsAlphaVantage(ticker) {
     }
 
     try {
-        // Alpha Vantage OVERVIEW endpoint
-        const url = `${CONFIG.ALPHA_VANTAGE_BASE}?function=OVERVIEW&symbol=${ticker}&apikey=${CONFIG.ALPHA_VANTAGE_API_KEY}`;
+        // Call our own secure backend instead of direct Alpha Vantage URL
+        const url = `${CONFIG.ALPHA_VANTAGE_ENDPOINT}${ticker}`;
 
-        // Note: Alpha Vantage requests usually don't need a CORS proxy if called directly from browser,
-        // but if it fails, we might need to route through our proxy.
-        // Let's try direct first.
         const response = await fetch(url);
 
         if (!response.ok) {
-            console.warn('Alpha Vantage API error:', response.status);
+            console.warn('Backend API error:', response.status);
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 

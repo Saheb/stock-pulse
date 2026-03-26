@@ -485,32 +485,24 @@ function calculateStats(prices, movingAverages) {
         const actualIndex = Math.max(0, prices.length - daysAgo);
         const pastPrice = prices[actualIndex];
 
-        // Debug logging for return calculation
-        if (yearsAgo === 1) {
-            console.log('1-year return calc:', {
-                currentPrice,
-                pastPrice,
-                actualIndex,
-                daysAgo,
-                pricesLength: prices.length
-            });
-        }
-
-        // Validate prices to prevent division by zero or negative prices
+        // Validate prices
         if (pastPrice <= 0 || currentPrice <= 0) return null;
         if (!isFinite(pastPrice) || !isFinite(currentPrice)) return null;
+        
+        // Sanity check: price ratio shouldn't be more than 20x in a year
+        // This catches bad data from Yahoo Finance (unadjusted prices, data errors)
+        // Even best-performing stocks rarely exceed 10x in a year
+        const ratio = currentPrice / pastPrice;
+        if (ratio > 20 || ratio < 0.05) return null;
 
         if (annualize && yearsAgo > 1) {
             // CAGR formula: (endValue/startValue)^(1/years) - 1
-            const ratio = currentPrice / pastPrice;
-            // Sanity check: if ratio is too extreme, return null
-            if (ratio <= 0 || !isFinite(ratio)) return null;
             const cagr = (Math.pow(ratio, 1 / yearsAgo) - 1) * 100;
             // Sanity check: if CAGR is too extreme (>1000% or <-99%), likely bad data
             if (!isFinite(cagr) || Math.abs(cagr) > 1000) return null;
             return cagr;
         }
-        const simpleReturn = ((currentPrice - pastPrice) / pastPrice) * 100;
+        const simpleReturn = (ratio - 1) * 100;
         // Sanity check for simple return
         if (!isFinite(simpleReturn) || Math.abs(simpleReturn) > 1000) return null;
         return simpleReturn;

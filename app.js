@@ -485,12 +485,35 @@ function calculateStats(prices, movingAverages) {
         const actualIndex = Math.max(0, prices.length - daysAgo);
         const pastPrice = prices[actualIndex];
 
+        // Debug logging for return calculation
+        if (yearsAgo === 1) {
+            console.log('1-year return calc:', {
+                currentPrice,
+                pastPrice,
+                actualIndex,
+                daysAgo,
+                pricesLength: prices.length
+            });
+        }
+
+        // Validate prices to prevent division by zero or negative prices
+        if (pastPrice <= 0 || currentPrice <= 0) return null;
+        if (!isFinite(pastPrice) || !isFinite(currentPrice)) return null;
+
         if (annualize && yearsAgo > 1) {
             // CAGR formula: (endValue/startValue)^(1/years) - 1
-            const cagr = (Math.pow(currentPrice / pastPrice, 1 / yearsAgo) - 1) * 100;
+            const ratio = currentPrice / pastPrice;
+            // Sanity check: if ratio is too extreme, return null
+            if (ratio <= 0 || !isFinite(ratio)) return null;
+            const cagr = (Math.pow(ratio, 1 / yearsAgo) - 1) * 100;
+            // Sanity check: if CAGR is too extreme (>1000% or <-99%), likely bad data
+            if (!isFinite(cagr) || Math.abs(cagr) > 1000) return null;
             return cagr;
         }
-        return ((currentPrice - pastPrice) / pastPrice) * 100;
+        const simpleReturn = ((currentPrice - pastPrice) / pastPrice) * 100;
+        // Sanity check for simple return
+        if (!isFinite(simpleReturn) || Math.abs(simpleReturn) > 1000) return null;
+        return simpleReturn;
     };
 
     const return1y = calculateReturn(1, false);  // 1-year is already annual

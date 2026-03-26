@@ -53,11 +53,14 @@ const elements = {
     rsiCard: document.getElementById('rsiCard'),
     rsiHint: document.getElementById('rsiHint'),
     statPE: document.getElementById('statPE'),
-    peCard: document.getElementById('statPE').closest('.stat-card'),
+    peCard: document.getElementById('peCard'),
+    peHint: document.getElementById('peHint'),
     statPEG: document.getElementById('statPEG'),
-    pegCard: document.getElementById('statPEG').closest('.stat-card'),
+    pegCard: document.getElementById('pegCard'),
+    pegHint: document.getElementById('pegHint'),
     statProfitMargin: document.getElementById('statProfitMargin'),
-    profitMarginCard: document.getElementById('statProfitMargin').closest('.stat-card'),
+    profitMarginCard: document.getElementById('profitMarginCard'),
+    profitMarginHint: document.getElementById('profitMarginHint'),
     statReturn1y: document.getElementById('statReturn1y'),
     statReturn3y: document.getElementById('statReturn3y'),
     statReturn5y: document.getElementById('statReturn5y'),
@@ -203,6 +206,9 @@ async function loadStockData(ticker, stockName = null) {
         stats.peRatio = fundamentals.peRatio;
         stats.pegRatio = fundamentals.pegRatio;
         stats.profitMargin = fundamentals.profitMargin;
+        stats.rateLimited = fundamentals.rateLimited;
+        stats.unsupportedTicker = fundamentals.unsupportedTicker;
+        stats.apiError = fundamentals.apiError;
 
         // Use stockName if provided, otherwise use ticker
         const displayName = stockName || ticker;
@@ -244,7 +250,7 @@ async function fetchFundamentalsAlphaVantage(ticker) {
     
     if (isInternationalTicker) {
         console.log('Skipping Alpha Vantage for international ticker:', ticker);
-        return { peRatio: null, pegRatio: null, profitMargin: null };
+        return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
     }
 
     // Check cache first (cache for 24 hours)
@@ -268,7 +274,7 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
         if (!response.ok) {
             console.warn('Backend API error:', response.status);
-            return { peRatio: null, pegRatio: null, profitMargin: null };
+            return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
         }
 
         const data = await response.json();
@@ -276,13 +282,13 @@ async function fetchFundamentalsAlphaVantage(ticker) {
         // Check for API limit message (Note field indicates rate limiting)
         if (data.Note) {
             console.warn('Alpha Vantage API limit reached:', data.Note);
-            return { peRatio: null, pegRatio: null, profitMargin: null };
+            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
         }
         
         // Check for empty data (unsupported ticker or no fundamentals)
         if (JSON.stringify(data) === '{}') {
             console.log('Alpha Vantage returned empty data for', ticker, '- may be unsupported ticker');
-            return { peRatio: null, pegRatio: null, profitMargin: null };
+            return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
         }
 
         const result = {
@@ -291,16 +297,22 @@ async function fetchFundamentalsAlphaVantage(ticker) {
             profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
         };
 
-        // Cache the result
-        localStorage.setItem(cacheKey, JSON.stringify({
-            data: result,
-            timestamp: Date.now()
-        }));
+        // Only cache if we got actual data (not all nulls)
+        const hasData = result.peRatio !== null || result.pegRatio !== null || result.profitMargin !== null;
+        if (hasData) {
+            localStorage.setItem(cacheKey, JSON.stringify({
+                data: result,
+                timestamp: Date.now()
+            }));
+        } else {
+            // Clear any cached nulls for this ticker
+            localStorage.removeItem(cacheKey);
+        }
 
         return result;
     } catch (error) {
         console.error('Error fetching fundamentals from Alpha Vantage:', error);
-        return { peRatio: null, pegRatio: null, profitMargin: null };
+        return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
     }
 }
 
@@ -557,28 +569,82 @@ function updateUI(ticker, displayName, stats) {
         elements.rsiHint.textContent = '';
     }
 
-    // Update P/E ratio - Hide if unavailable
+    // Update P/E ratio - Show status message if applicable
     if (stats.peRatio !== null && stats.peRatio !== undefined) {
         elements.statPE.textContent = stats.peRatio.toFixed(1);
+        elements.peHint.textContent = '';
         elements.peCard.hidden = false;
     } else {
-        elements.peCard.hidden = true;
+        if (stats.rateLimited) {
+            elements.statPE.textContent = '--';
+            elements.peHint.textContent = 'API limit reached';
+            elements.peHint.className = 'stat-hint negative';
+            elements.peCard.hidden = false;
+        } else if (stats.unsupportedTicker) {
+            elements.statPE.textContent = '--';
+            elements.peHint.textContent = 'Not available';
+            elements.peHint.className = 'stat-hint';
+            elements.peCard.hidden = false;
+        } else if (stats.apiError) {
+            elements.statPE.textContent = '--';
+            elements.peHint.textContent = 'Failed to load';
+            elements.peHint.className = 'stat-hint negative';
+            elements.peCard.hidden = false;
+        } else {
+            elements.peCard.hidden = true;
+        }
     }
 
-    // Update PEG Ratio - Hide if unavailable
+    // Update PEG Ratio - Show status message if applicable
     if (stats.pegRatio !== null && stats.pegRatio !== undefined) {
         elements.statPEG.textContent = stats.pegRatio.toFixed(2);
+        elements.pegHint.textContent = '';
         elements.pegCard.hidden = false;
     } else {
-        elements.pegCard.hidden = true;
+        if (stats.rateLimited) {
+            elements.statPEG.textContent = '--';
+            elements.pegHint.textContent = 'API limit reached';
+            elements.pegHint.className = 'stat-hint negative';
+            elements.pegCard.hidden = false;
+        } else if (stats.unsupportedTicker) {
+            elements.statPEG.textContent = '--';
+            elements.pegHint.textContent = 'Not available';
+            elements.pegHint.className = 'stat-hint';
+            elements.pegCard.hidden = false;
+        } else if (stats.apiError) {
+            elements.statPEG.textContent = '--';
+            elements.pegHint.textContent = 'Failed to load';
+            elements.pegHint.className = 'stat-hint negative';
+            elements.pegCard.hidden = false;
+        } else {
+            elements.pegCard.hidden = true;
+        }
     }
 
-    // Update Profit Margin - Hide if unavailable
+    // Update Profit Margin - Show status message if applicable
     if (stats.profitMargin !== null && stats.profitMargin !== undefined) {
         elements.statProfitMargin.textContent = `${stats.profitMargin.toFixed(1)}%`;
+        elements.profitMarginHint.textContent = '';
         elements.profitMarginCard.hidden = false;
     } else {
-        elements.profitMarginCard.hidden = true;
+        if (stats.rateLimited) {
+            elements.statProfitMargin.textContent = '--';
+            elements.profitMarginHint.textContent = 'API limit reached';
+            elements.profitMarginHint.className = 'stat-hint negative';
+            elements.profitMarginCard.hidden = false;
+        } else if (stats.unsupportedTicker) {
+            elements.statProfitMargin.textContent = '--';
+            elements.profitMarginHint.textContent = 'Not available';
+            elements.profitMarginHint.className = 'stat-hint';
+            elements.profitMarginCard.hidden = false;
+        } else if (stats.apiError) {
+            elements.statProfitMargin.textContent = '--';
+            elements.profitMarginHint.textContent = 'Failed to load';
+            elements.profitMarginHint.className = 'stat-hint negative';
+            elements.profitMarginCard.hidden = false;
+        } else {
+            elements.profitMarginCard.hidden = true;
+        }
     }
 
     // Update multi-year returns

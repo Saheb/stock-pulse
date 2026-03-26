@@ -272,6 +272,12 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
         const response = await fetch(url);
 
+        // Check for rate limiting (429 status)
+        if (response.status === 429) {
+            console.warn('Alpha Vantage API limit reached');
+            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
+        }
+
         if (!response.ok) {
             console.warn('Backend API error:', response.status);
             return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
@@ -279,9 +285,9 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
         const data = await response.json();
 
-        // Check for API limit message (Note field indicates rate limiting)
-        if (data.Note) {
-            console.warn('Alpha Vantage API limit reached:', data.Note);
+        // Check for rate limited error response
+        if (data.error === 'rate_limited') {
+            console.warn('Alpha Vantage API limit reached');
             return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
         }
         

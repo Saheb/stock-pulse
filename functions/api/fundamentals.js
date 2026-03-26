@@ -34,8 +34,8 @@ export async function onRequest(context) {
         });
 
         if (!response.ok) {
-            return new Response(JSON.stringify({ error: `Alpha Vantage API error: ${response.status}` }), {
-                status: response.status,
+            return new Response(JSON.stringify({ error: 'Fundamentals service unavailable' }), {
+                status: 503,
                 headers: {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*',
@@ -47,17 +47,32 @@ export async function onRequest(context) {
 
         // Check for rate limiting (Alpha Vantage returns a Note field when rate limited)
         if (data.Note) {
-            console.warn('Alpha Vantage rate limit:', data.Note);
-            // Return the data as-is (client will handle the Note field)
+            console.warn('Alpha Vantage rate limit reached');
+            // Return rate limited response without exposing the API key
+            return new Response(JSON.stringify({ 
+                error: 'rate_limited',
+                message: 'Daily API limit reached. Resets at midnight UTC.'
+            }), {
+                status: 429,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                },
+            });
         }
         
         // Check for empty data (unsupported ticker)
         if (JSON.stringify(data) === '{}') {
-            console.log('Alpha Vantage returned empty data for symbol:', symbol);
-            // Return empty data (client will handle)
+            return new Response(JSON.stringify({}), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                },
+            });
         }
 
-        // Create new response with CORS headers
+        // Return the data
         return new Response(JSON.stringify(data), {
             status: 200,
             headers: {
@@ -66,7 +81,8 @@ export async function onRequest(context) {
             },
         });
     } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
+        console.error('Alpha Vantage proxy error:', error);
+        return new Response(JSON.stringify({ error: 'Fundamentals service error' }), {
             status: 500,
             headers: {
                 'Content-Type': 'application/json',

@@ -177,21 +177,21 @@ async function loadStockData(ticker, stockName = null) {
 
         const { dates, prices, volumes } = parseTimeSeriesData(data);
 
-        // Need at least 365 days for the longest MA
-        const minDays = Math.max(...CONFIG.MA_PERIODS);
+        // Need at least 200 days for the shortest MA
+        const minDays = Math.min(...CONFIG.MA_PERIODS);
         if (prices.length < minDays) {
-            showError(`Not enough data to calculate ${minDays}-day moving average. Need at least ${minDays} days of data.`);
+            showError(`Not enough data to calculate moving averages. Need at least ${minDays} days of data, but only have ${prices.length} days.`);
             return;
         }
 
-        // Calculate all moving averages on FULL data
+        // Calculate all moving averages on FULL data (will have nulls for insufficient periods)
         const movingAverages = {};
         CONFIG.MA_PERIODS.forEach(period => {
             movingAverages[period] = calculateMovingAverage(prices, period);
         });
 
-        // Now slice to last 500 trading days (~2 years) for display
-        const displayDays = 500;
+        // Now slice to last 500 trading days (~2 years) for display, but cap at available data
+        const displayDays = Math.min(500, prices.length);
         const displayDates = dates.slice(-displayDays);
         const displayPrices = prices.slice(-displayDays);
         const displayMAs = {};
@@ -218,6 +218,35 @@ async function loadStockData(ticker, stockName = null) {
 
 // ===== Fetch Fundamentals from Alpha Vantage with Caching =====
 async function fetchFundamentalsAlphaVantage(ticker) {
+    // Known international exchange suffixes that Alpha Vantage doesn't support
+    // Alpha Vantage primarily supports US tickers
+    const internationalSuffixes = [
+        '.L', '.LON',      // London
+        '.TO',             // Toronto  
+        '.AX',             // Australia
+        '.HK',             // Hong Kong
+        '.SI',             // Singapore
+        '.TW',             // Taiwan
+        '.KS',             // Korea
+        '.T',              // Tokyo
+        '.PA',             // Paris
+        '.DE',             // Germany
+        '.MI',             // Milan
+        '.BR',             // Brussels
+        '.AS',             // Amsterdam
+        '.V',              // TSX Venture
+    ];
+    
+    const tickerUpper = ticker.toUpperCase();
+    const isInternationalTicker = internationalSuffixes.some(suffix => 
+        tickerUpper.endsWith(suffix) || tickerUpper.endsWith(suffix + '.')
+    );
+    
+    if (isInternationalTicker) {
+        console.log('Skipping Alpha Vantage for international ticker:', ticker);
+        return { peRatio: null, pegRatio: null, profitMargin: null };
+    }
+
     // Check cache first (cache for 24 hours)
     const cacheKey = `av_overview_${ticker}`;
     const cached = localStorage.getItem(cacheKey);
@@ -244,9 +273,15 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
         const data = await response.json();
 
-        // Check for API limit message or empty object
-        if (data.Note || JSON.stringify(data) === '{}') {
-            console.warn('Alpha Vantage API limit reached or no data:', data);
+        // Check for API limit message (Note field indicates rate limiting)
+        if (data.Note) {
+            console.warn('Alpha Vantage API limit reached:', data.Note);
+            return { peRatio: null, pegRatio: null, profitMargin: null };
+        }
+        
+        // Check for empty data (unsupported ticker or no fundamentals)
+        if (JSON.stringify(data) === '{}') {
+            console.log('Alpha Vantage returned empty data for', ticker, '- may be unsupported ticker');
             return { peRatio: null, pegRatio: null, profitMargin: null };
         }
 

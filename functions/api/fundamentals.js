@@ -33,7 +33,29 @@ export async function onRequest(context) {
             },
         });
 
+        if (!response.ok) {
+            return new Response(JSON.stringify({ error: `Alpha Vantage API error: ${response.status}` }), {
+                status: response.status,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                },
+            });
+        }
+
         const data = await response.json();
+
+        // Check for rate limiting (Alpha Vantage returns a Note field when rate limited)
+        if (data.Note) {
+            console.warn('Alpha Vantage rate limit:', data.Note);
+            // Return the data as-is (client will handle the Note field)
+        }
+        
+        // Check for empty data (unsupported ticker)
+        if (JSON.stringify(data) === '{}') {
+            console.log('Alpha Vantage returned empty data for symbol:', symbol);
+            // Return empty data (client will handle)
+        }
 
         // Create new response with CORS headers
         return new Response(JSON.stringify(data), {

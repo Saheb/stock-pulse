@@ -172,6 +172,19 @@ async function loadStockData(ticker, stockName = null) {
             fetchStockData(ticker),
             fetchFundamentalsAlphaVantage(ticker)
         ]);
+        // Surface API rate-limit / errors before not-enough-data logic
+        if (fundamentals?.rateLimited) {
+            showError('Rate limit reached. Alpha Vantage daily limit hit. Data may be incomplete.');
+            return;
+        }
+        if (fundamentals?.apiError) {
+            showError('Error fetching fundamentals. Please try again later.');
+            return;
+        }
+        if (fundamentals?.unsupportedTicker) {
+            showError('Fundamentals data not available for this ticker.');
+            return;
+        }
 
         if (data.error) {
             showError(data.error);
@@ -183,7 +196,11 @@ async function loadStockData(ticker, stockName = null) {
         // Need at least 200 days for the shortest MA
         const minDays = Math.min(...CONFIG.MA_PERIODS);
         if (prices.length < minDays) {
-            showError(`Not enough data to calculate moving averages. Need at least ${minDays} days of data, but only have ${prices.length} days.`);
+            if (fundamentals?.rateLimited) {
+                showError('Rate limit reached. Retry after UTC midnight.');
+                return;
+            }
+            showError(`Not enough data to calculate moving averages. Need at least ${minDays} days of data.`);
             return;
         }
 

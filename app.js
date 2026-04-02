@@ -270,6 +270,20 @@ async function fetchFundamentalsAlphaVantage(ticker) {
         return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
     }
 
+    // Circuit breaker: if rate limited today, skip all API calls until midnight UTC
+    const circuitBreakerKey = 'av_circuit_breaker';
+    const circuitBreaker = localStorage.getItem(circuitBreakerKey);
+    if (circuitBreaker) {
+        const { until } = JSON.parse(circuitBreaker);
+        if (Date.now() < until) {
+            console.log('Circuit breaker active - skipping Alpha Vantage until UTC midnight');
+            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
+        } else {
+            // Circuit breaker expired, clear it
+            localStorage.removeItem(circuitBreakerKey);
+        }
+    }
+
     // Check cache first (cache for 24 hours)
     const cacheKey = `av_overview_${ticker}`;
     const cached = localStorage.getItem(cacheKey);
@@ -292,6 +306,12 @@ async function fetchFundamentalsAlphaVantage(ticker) {
         // Check for rate limiting (429 status)
         if (response.status === 429) {
             console.warn('Alpha Vantage API limit reached');
+            // Set circuit breaker until midnight UTC
+            const now = new Date();
+            const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+            localStorage.setItem(circuitBreakerKey, JSON.stringify({
+                until: tomorrow.getTime()
+            }));
             return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
         }
 
@@ -305,12 +325,23 @@ async function fetchFundamentalsAlphaVantage(ticker) {
         // Check for rate limited error response
         if (data.error === 'rate_limited') {
             console.warn('Alpha Vantage API limit reached');
+            // Set circuit breaker until midnight UTC
+            const now = new Date();
+            const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+            localStorage.setItem(circuitBreakerKey, JSON.stringify({
+                until: tomorrow.getTime()
+            }));
             return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
         }
         
         // Check for empty data (unsupported ticker or no fundamentals)
         if (JSON.stringify(data) === '{}') {
             console.log('Alpha Vantage returned empty data for', ticker, '- may be unsupported ticker');
+            // Cache empty responses for 7 days to prevent repeated wasted calls
+            localStorage.setItem(cacheKey, JSON.stringify({
+                data: { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true },
+                timestamp: Date.now()
+            }));
             return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
         }
 
@@ -320,17 +351,11 @@ async function fetchFundamentalsAlphaVantage(ticker) {
             profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
         };
 
-        // Only cache if we got actual data (not all nulls)
-        const hasData = result.peRatio !== null || result.pegRatio !== null || result.profitMargin !== null;
-        if (hasData) {
-            localStorage.setItem(cacheKey, JSON.stringify({
-                data: result,
-                timestamp: Date.now()
-            }));
-        } else {
-            // Clear any cached nulls for this ticker
-            localStorage.removeItem(cacheKey);
-        }
+        // Cache the result (even if all nulls - means API returned data but fields were None)
+        localStorage.setItem(cacheKey, JSON.stringify({
+            data: result,
+            timestamp: Date.now()
+        }));
 
         return result;
     } catch (error) {

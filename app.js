@@ -58,24 +58,21 @@ function incrementUsage() {
 }
 
 function updateUsageBadge() {
-    const badge = document.getElementById('apiUsageBadge');
-    const text = document.getElementById('apiUsageText');
-    if (!badge || !text) return;
+    const badge = document.getElementById('apiStatusBadge');
+    const text = document.getElementById('apiStatusText');
+    const dot = badge.querySelector('.status-dot');
+    if (!badge || !text || !dot) return;
 
     const { count } = getUsageStats();
     const remaining = Math.max(0, DAILY_AV_LIMIT - count);
 
-    badge.hidden = false;
-    text.textContent = `Alpha Vantage: ${remaining} left today`;
-
-    badge.classList.remove('warning', 'danger', 'exhausted');
+    dot.classList.remove('status-dot-ok', 'status-dot-limited');
     if (remaining === 0) {
-        badge.classList.add('exhausted');
-        text.textContent = 'Alpha Vantage: Daily limit reached';
-    } else if (remaining <= 3) {
-        badge.classList.add('danger');
-    } else if (remaining <= 8) {
-        badge.classList.add('warning');
+        dot.classList.add('status-dot-limited');
+        text.textContent = 'API limit reached';
+    } else {
+        dot.classList.add('status-dot-ok');
+        text.textContent = 'Fundamentals ready';
     }
 }
 

@@ -1,32 +1,83 @@
 // ===== Configuration =====
 const CONFIG = {
-    // Yahoo Finance APIs (no API key needed)
+    APP_VERSION: '1.1.0', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
-    // Use our own Cloudflare Pages Function as proxy
     CORS_PROXY: '/api/proxy?url=',
-
-    // Alpha Vantage API for fundamentals (P/E ratio, PEG ratio, Profit Margin)
-    // Rate limit: 25 requests per day for free tier. Caching is CRITICAL.
     ALPHA_VANTAGE_ENDPOINT: '/api/fundamentals?symbol=',
-
-    // Chart colors
+    YAHOO_CACHE_TTL: 5 * 60 * 1000,
+    AV_CACHE_TTL: 24 * 60 * 60 * 1000,
+    EMPTY_RESPONSE_TTL: 7 * 24 * 60 * 60 * 1000,
     COLORS: {
         price: '#6366f1',
         priceGradient: 'rgba(99, 102, 241, 0.1)',
-        ma200: '#f59e0b',   // Orange - 200 day
-        ma365: '#ef4444',   // Red - 365 day (1 year)
+        ma200: '#f59e0b',
+        ma365: '#ef4444',
         grid: 'rgba(255, 255, 255, 0.06)',
         text: 'rgba(255, 255, 255, 0.6)'
     },
-
-    // Moving average periods
     MA_PERIODS: [200, 365]
 };
+
+// ===== Request Deduplication =====
+const pendingRequests = new Map();
+
+function deduplicate(key, fn) {
+    if (pendingRequests.has(key)) {
+        return pendingRequests.get(key);
+    }
+    const promise = fn().finally(() => pendingRequests.delete(key));
+    pendingRequests.set(key, promise);
+    return promise;
+}
 
 // ===== State =====
 let stockChart = null;
 let currentTicker = null;
+
+// ===== Usage Tracking =====
+const DAILY_AV_LIMIT = 25;
+
+function getUsageStats() {
+    const today = new Date().toUTCString().split(' ')[0];
+    const stored = localStorage.getItem('av_usage');
+    if (stored) {
+        const { date, count } = JSON.parse(stored);
+        if (date === today) {
+            return { date, count };
+        }
+    }
+    return { date: today, count: 0 };
+}
+
+function incrementUsage() {
+    const stats = getUsageStats();
+    stats.count++;
+    localStorage.setItem('av_usage', JSON.stringify(stats));
+    updateUsageBadge();
+}
+
+function updateUsageBadge() {
+    const badge = document.getElementById('apiUsageBadge');
+    const text = document.getElementById('apiUsageText');
+    if (!badge || !text) return;
+
+    const { count } = getUsageStats();
+    const remaining = Math.max(0, DAILY_AV_LIMIT - count);
+
+    badge.hidden = false;
+    text.textContent = `Alpha Vantage: ${remaining} left today`;
+
+    badge.classList.remove('warning', 'danger', 'exhausted');
+    if (remaining === 0) {
+        badge.classList.add('exhausted');
+        text.textContent = 'Alpha Vantage: Daily limit reached';
+    } else if (remaining <= 3) {
+        badge.classList.add('danger');
+    } else if (remaining <= 8) {
+        badge.classList.add('warning');
+    }
+}
 
 // ===== DOM Elements =====
 const elements = {
@@ -73,17 +124,35 @@ const elements = {
 };
 
 // ===== Initialize =====
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+    checkVersionAndClearCache();
+    init();
+    updateUsageBadge();
+});
+
+function checkVersionAndClearCache() {
+    const storedVersion = localStorage.getItem('app_version');
+    if (storedVersion !== CONFIG.APP_VERSION) {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('yahoo_chart_') || key.startsWith('av_overview_') || key.startsWith('av_')) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        localStorage.setItem('app_version', CONFIG.APP_VERSION);
+        console.log('App version updated to', CONFIG.APP_VERSION, '- cleared stale caches');
+    }
+}
 
 function init() {
-    // Event listeners
     elements.searchBtn.addEventListener('click', handleSearch);
     elements.tickerInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleSearch();
     });
     elements.retryBtn.addEventListener('click', handleSearch);
 
-    // Popular ticker chips
     elements.tickerChips.forEach(chip => {
         chip.addEventListener('click', () => {
             const ticker = chip.dataset.ticker;
@@ -112,13 +181,11 @@ async function handleSearch() {
         searchString = TICKER_ALIASES[upperQuery];
     }
 
-    // A ticker is typically 1-5 uppercase letters optionally followed by an exchange suffix (e.g. .L)
     const isLikelyTicker = /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/.test(searchString.toUpperCase());
 
     let ticker = searchString.toUpperCase();
     let stockName = ticker;
 
-    // If it doesn't look like a ticker, search for the stock
     if (!isLikelyTicker || searchString.includes(' ')) {
         showLoading();
         const searchResult = await searchStock(searchString);
@@ -127,11 +194,9 @@ async function handleSearch() {
             stockName = searchResult.name;
             elements.tickerInput.value = ticker;
         } else {
-            // Try as ticker anyway
             ticker = searchString.toUpperCase().replace(/[^A-Z.]/g, '');
         }
     } else if (TICKER_ALIASES[upperQuery]) {
-        // Update input field to show the resolved ticker
         elements.tickerInput.value = ticker;
     }
 
@@ -167,12 +232,11 @@ async function loadStockData(ticker, stockName = null) {
     currentTicker = ticker;
 
     try {
-        // Fetch chart data and fundamentals in parallel
         const [data, fundamentals] = await Promise.all([
             fetchStockData(ticker),
             fetchFundamentalsAlphaVantage(ticker)
         ]);
-        // Surface API rate-limit / errors before not-enough-data logic
+
         if (fundamentals?.rateLimited) {
             showError('Rate limit reached. Alpha Vantage daily limit hit. Data may be incomplete.');
             return;
@@ -193,24 +257,17 @@ async function loadStockData(ticker, stockName = null) {
 
         const { dates, prices, volumes } = parseTimeSeriesData(data);
 
-        // Need at least 200 days for the shortest MA
         const minDays = Math.min(...CONFIG.MA_PERIODS);
         if (prices.length < minDays) {
-            if (fundamentals?.rateLimited) {
-                showError('Rate limit reached. Retry after UTC midnight.');
-                return;
-            }
             showError(`Not enough data to calculate moving averages. Need at least ${minDays} days of data.`);
             return;
         }
 
-        // Calculate all moving averages on FULL data (will have nulls for insufficient periods)
         const movingAverages = {};
         CONFIG.MA_PERIODS.forEach(period => {
             movingAverages[period] = calculateMovingAverage(prices, period);
         });
 
-        // Now slice to last 500 trading days (~2 years) for display, but cap at available data
         const displayDays = Math.min(500, prices.length);
         const displayDates = dates.slice(-displayDays);
         const displayPrices = prices.slice(-displayDays);
@@ -227,7 +284,6 @@ async function loadStockData(ticker, stockName = null) {
         stats.unsupportedTicker = fundamentals.unsupportedTicker;
         stats.apiError = fundamentals.apiError;
 
-        // Use stockName if provided, otherwise use ticker
         const displayName = stockName || ticker;
 
         updateUI(ticker, displayName, stats);
@@ -241,36 +297,24 @@ async function loadStockData(ticker, stockName = null) {
 
 // ===== Fetch Fundamentals from Alpha Vantage with Caching =====
 async function fetchFundamentalsAlphaVantage(ticker) {
-    // Known international exchange suffixes that Alpha Vantage doesn't support
-    // Alpha Vantage primarily supports US tickers
     const internationalSuffixes = [
-        '.L', '.LON',      // London
-        '.TO',             // Toronto  
-        '.AX',             // Australia
-        '.HK',             // Hong Kong
-        '.SI',             // Singapore
-        '.TW',             // Taiwan
-        '.KS',             // Korea
-        '.T',              // Tokyo
-        '.PA',             // Paris
-        '.DE',             // Germany
-        '.MI',             // Milan
-        '.BR',             // Brussels
-        '.AS',             // Amsterdam
-        '.V',              // TSX Venture
+        '.L', '.LON', '.TO', '.V', '.AX', '.HK', '.SI', '.TW', '.KS', '.T',
+        '.PA', '.DE', '.MI', '.BR', '.AS', '.ST', '.CO', '.OL', '.HE',
+        '.SW', '.MC', '.LS', '.AT', '.PR', '.SA', '.CR', '.BO', '.NS',
+        '.NZ', '.KL', '.BK', '.JK', '.SR', '.PS', '.SZ', '.SS', '.MX',
+        '.BA', '.CA', '.LM',
     ];
-    
+
     const tickerUpper = ticker.toUpperCase();
-    const isInternationalTicker = internationalSuffixes.some(suffix => 
+    const isInternationalTicker = internationalSuffixes.some(suffix =>
         tickerUpper.endsWith(suffix) || tickerUpper.endsWith(suffix + '.')
     );
-    
+
     if (isInternationalTicker) {
         console.log('Skipping Alpha Vantage for international ticker:', ticker);
         return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
     }
 
-    // Circuit breaker: if rate limited today, skip all API calls until midnight UTC
     const circuitBreakerKey = 'av_circuit_breaker';
     const circuitBreaker = localStorage.getItem(circuitBreakerKey);
     if (circuitBreaker) {
@@ -279,126 +323,153 @@ async function fetchFundamentalsAlphaVantage(ticker) {
             console.log('Circuit breaker active - skipping Alpha Vantage until UTC midnight');
             return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
         } else {
-            // Circuit breaker expired, clear it
             localStorage.removeItem(circuitBreakerKey);
         }
     }
 
-    // Check cache first (cache for 24 hours)
     const cacheKey = `av_overview_${ticker}`;
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
         const { data, timestamp } = JSON.parse(cached);
         const age = Date.now() - timestamp;
-        const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-        if (age < oneDay) {
+        const ttl = data.unsupportedTicker ? CONFIG.EMPTY_RESPONSE_TTL : CONFIG.AV_CACHE_TTL;
+        if (age < ttl) {
             console.log('Using cached Alpha Vantage data for', ticker);
             return data;
         }
     }
 
-    try {
-        // Call our own secure backend instead of direct Alpha Vantage URL
-        const url = `${CONFIG.ALPHA_VANTAGE_ENDPOINT}${ticker}`;
+    return deduplicate(`av_${ticker}`, async () => {
+        incrementUsage();
+        try {
+            const url = `${CONFIG.ALPHA_VANTAGE_ENDPOINT}${ticker}`;
+            const response = await fetch(url);
 
-        const response = await fetch(url);
+            if (response.status === 429) {
+                console.warn('Alpha Vantage API limit reached');
+                setRateLimitCircuitBreaker();
+                return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
+            }
 
-        // Check for rate limiting (429 status)
-        if (response.status === 429) {
-            console.warn('Alpha Vantage API limit reached');
-            // Set circuit breaker until midnight UTC
-            const now = new Date();
-            const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-            localStorage.setItem(circuitBreakerKey, JSON.stringify({
-                until: tomorrow.getTime()
-            }));
-            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
-        }
+            if (!response.ok) {
+                console.warn('Backend API error:', response.status);
+                return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
+            }
 
-        if (!response.ok) {
-            console.warn('Backend API error:', response.status);
-            return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
-        }
+            const data = await response.json();
 
-        const data = await response.json();
+            if (data.error === 'rate_limited') {
+                console.warn('Alpha Vantage API limit reached');
+                setRateLimitCircuitBreaker();
+                return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
+            }
 
-        // Check for rate limited error response
-        if (data.error === 'rate_limited') {
-            console.warn('Alpha Vantage API limit reached');
-            // Set circuit breaker until midnight UTC
-            const now = new Date();
-            const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-            localStorage.setItem(circuitBreakerKey, JSON.stringify({
-                until: tomorrow.getTime()
-            }));
-            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
-        }
-        
-        // Check for empty data (unsupported ticker or no fundamentals)
-        if (JSON.stringify(data) === '{}') {
-            console.log('Alpha Vantage returned empty data for', ticker, '- may be unsupported ticker');
-            // Cache empty responses for 7 days to prevent repeated wasted calls
+            if (Object.keys(data).length === 0) {
+                console.log('Alpha Vantage returned empty data for', ticker);
+                const result = { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    data: result,
+                    timestamp: Date.now()
+                }));
+                return result;
+            }
+
+            const result = {
+                peRatio: data.PERatio && data.PERatio !== 'None' ? parseFloat(data.PERatio) : null,
+                pegRatio: data.PEGRatio && data.PEGRatio !== 'None' ? parseFloat(data.PEGRatio) : null,
+                profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
+            };
+
             localStorage.setItem(cacheKey, JSON.stringify({
-                data: { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true },
+                data: result,
                 timestamp: Date.now()
             }));
-            return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
+
+            return result;
+        } catch (error) {
+            console.error('Error fetching fundamentals from Alpha Vantage:', error);
+            return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
         }
-
-        const result = {
-            peRatio: data.PERatio && data.PERatio !== 'None' ? parseFloat(data.PERatio) : null,
-            pegRatio: data.PEGRatio && data.PEGRatio !== 'None' ? parseFloat(data.PEGRatio) : null,
-            profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
-        };
-
-        // Cache the result (even if all nulls - means API returned data but fields were None)
-        localStorage.setItem(cacheKey, JSON.stringify({
-            data: result,
-            timestamp: Date.now()
-        }));
-
-        return result;
-    } catch (error) {
-        console.error('Error fetching fundamentals from Alpha Vantage:', error);
-        return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
-    }
+    });
 }
 
-// ===== Fetch Stock Data =====
+function setRateLimitCircuitBreaker() {
+    const now = new Date();
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    localStorage.setItem('av_circuit_breaker', JSON.stringify({
+        until: tomorrow.getTime()
+    }));
+}
+
+function clearOldCaches() {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('yahoo_chart_') || key.startsWith('av_overview_')) {
+            keysToRemove.push(key);
+        }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+}
+
+// ===== Fetch Stock Data with Caching =====
 async function fetchStockData(ticker) {
-    // Fetch max data to ensure we can calculate the all-time high
     const range = 'max';
     const interval = '1d';
     const yahooUrl = `${CONFIG.YAHOO_API_BASE}/${ticker}?range=${range}&interval=${interval}`;
-    // Use CORS proxy to bypass browser restrictions
     const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(yahooUrl)}`;
+    const cacheKey = `yahoo_chart_${ticker}`;
 
-    try {
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            if (response.status === 404) {
-                return { error: 'Invalid ticker symbol. Please check and try again.' };
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+        try {
+            const { data, timestamp } = JSON.parse(cached);
+            const age = Date.now() - timestamp;
+            if (age < CONFIG.YAHOO_CACHE_TTL) {
+                console.log('Using cached Yahoo data for', ticker);
+                return data;
             }
-            return { error: `Server error (${response.status}). Please try again later.` };
+        } catch (e) {
+            localStorage.removeItem(cacheKey);
         }
-
-        const data = await response.json();
-
-        // Check for API errors
-        if (data.chart?.error) {
-            return { error: data.chart.error.description || 'Failed to fetch data.' };
-        }
-
-        if (!data.chart?.result?.[0]) {
-            return { error: 'No data available for this ticker.' };
-        }
-
-        return data;
-    } catch (error) {
-        console.error('Fetch error:', error);
-        return { error: 'Network error. Please check your connection and try again.' };
     }
+
+    return deduplicate(`yahoo_${ticker}`, async () => {
+        try {
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return { error: 'Invalid ticker symbol. Please check and try again.' };
+                }
+                return { error: `Server error (${response.status}). Please try again later.` };
+            }
+
+            const data = await response.json();
+
+            if (data.chart?.error) {
+                return { error: data.chart.error.description || 'Failed to fetch data.' };
+            }
+
+            if (!data.chart?.result?.[0]) {
+                return { error: 'No data available for this ticker.' };
+            }
+
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    data,
+                    timestamp: Date.now()
+                }));
+            } catch (e) {
+                clearOldCaches();
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Fetch error:', error);
+            return { error: 'Network error. Please check your connection and try again.' };
+        }
+    });
 }
 
 // ===== Parse Time Series Data =====
@@ -407,14 +478,12 @@ function parseTimeSeriesData(data) {
     const timestamps = result.timestamp;
     const quotes = result.indicators.quote[0];
 
-    // Convert timestamps to dates and pair with close prices
     const entries = [];
     for (let i = 0; i < timestamps.length; i++) {
         const closePrice = quotes.close[i];
-        // Skip days with null/undefined prices (weekends, holidays already filtered by Yahoo)
         if (closePrice != null) {
             const date = new Date(timestamps[i] * 1000);
-            const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+            const dateStr = date.toISOString().split('T')[0];
             entries.push({
                 date: dateStr,
                 close: closePrice,
@@ -423,7 +492,6 @@ function parseTimeSeriesData(data) {
         }
     }
 
-    // Return ALL data - slicing happens after MA calculation
     const dates = entries.map(e => e.date);
     const prices = entries.map(e => e.close);
     const volumes = entries.map(e => e.volume);
@@ -431,42 +499,42 @@ function parseTimeSeriesData(data) {
     return { dates, prices, volumes };
 }
 
-// ===== Calculate Moving Average =====
+// ===== Calculate Moving Average (sliding window O(n)) =====
 function calculateMovingAverage(prices, period) {
     const ma = [];
+    let sum = 0;
 
     for (let i = 0; i < prices.length; i++) {
+        sum += prices[i];
+
+        if (i >= period) {
+            sum -= prices[i - period];
+        }
+
         if (i < period - 1) {
-            // Not enough data points yet
             ma.push(null);
         } else {
-            // Calculate average of last 'period' prices
-            const slice = prices.slice(i - period + 1, i + 1);
-            const avg = slice.reduce((sum, p) => sum + p, 0) / period;
-            ma.push(avg);
+            ma.push(sum / period);
         }
     }
 
     return ma;
 }
 
-// ===== Calculate RSI (Relative Strength Index) =====
+// ===== Calculate RSI =====
 function calculateRSI(prices, period = 14) {
     if (prices.length < period + 1) {
         return null;
     }
 
-    // Calculate daily price changes
     const changes = [];
     for (let i = 1; i < prices.length; i++) {
         changes.push(prices[i] - prices[i - 1]);
     }
 
-    // Separate gains and losses
     let avgGain = 0;
     let avgLoss = 0;
 
-    // Initial average (first 'period' days)
     for (let i = 0; i < period; i++) {
         if (changes[i] > 0) {
             avgGain += changes[i];
@@ -477,7 +545,6 @@ function calculateRSI(prices, period = 14) {
     avgGain /= period;
     avgLoss /= period;
 
-    // Calculate RSI using smoothed averages for remaining days
     for (let i = period; i < changes.length; i++) {
         const change = changes[i];
         if (change > 0) {
@@ -489,9 +556,8 @@ function calculateRSI(prices, period = 14) {
         }
     }
 
-    // Calculate RSI
     if (avgLoss === 0) {
-        return 100; // No losses means RSI is 100
+        return 100;
     }
     const rs = avgGain / avgLoss;
     const rsi = 100 - (100 / (1 + rs));
@@ -506,59 +572,46 @@ function calculateStats(prices, movingAverages) {
     const priceChange = currentPrice - previousPrice;
     const priceChangePercent = (priceChange / previousPrice) * 100;
 
-    // Get latest MA values
     const currentMAs = {};
     CONFIG.MA_PERIODS.forEach(period => {
         const maArray = movingAverages[period];
         currentMAs[period] = maArray[maArray.length - 1];
     });
 
-    const high52Week = Math.max(...prices.slice(-252)); // ~252 trading days in a year
+    const high52Week = Math.max(...prices.slice(-252));
     const low52Week = Math.min(...prices.slice(-252));
 
     const allTimeHigh = Math.max(...prices);
     const dropFromATH = ((currentPrice - allTimeHigh) / allTimeHigh) * 100;
 
-    // Calculate RSI (14-day)
     const rsi = calculateRSI(prices, 14);
 
-    // Calculate multi-year returns (250 trading days ≈ 1 year, allowing slight tolerance)
-    // For multi-year, use CAGR (Compound Annual Growth Rate) to normalize to yearly
     const calculateReturn = (yearsAgo, annualize = false) => {
-        const daysAgo = yearsAgo * 250; // Use 250 instead of 252 for tolerance
-        // Allow 5% tolerance in case of slight data variance
+        const daysAgo = yearsAgo * 250;
         const minRequired = Math.floor(daysAgo * 0.95);
         if (prices.length < minRequired) return null;
-        // Use the closest available data point
         const actualIndex = Math.max(0, prices.length - daysAgo);
         const pastPrice = prices[actualIndex];
 
-        // Validate prices
         if (pastPrice <= 0 || currentPrice <= 0) return null;
         if (!isFinite(pastPrice) || !isFinite(currentPrice)) return null;
-        
-        // Sanity check: price ratio shouldn't be more than 20x in a year
-        // This catches bad data from Yahoo Finance (unadjusted prices, data errors)
-        // Even best-performing stocks rarely exceed 10x in a year
+
         const ratio = currentPrice / pastPrice;
         if (ratio > 20 || ratio < 0.05) return null;
 
         if (annualize && yearsAgo > 1) {
-            // CAGR formula: (endValue/startValue)^(1/years) - 1
             const cagr = (Math.pow(ratio, 1 / yearsAgo) - 1) * 100;
-            // Sanity check: if CAGR is too extreme (>1000% or <-99%), likely bad data
             if (!isFinite(cagr) || Math.abs(cagr) > 1000) return null;
             return cagr;
         }
         const simpleReturn = (ratio - 1) * 100;
-        // Sanity check for simple return
         if (!isFinite(simpleReturn) || Math.abs(simpleReturn) > 1000) return null;
         return simpleReturn;
     };
 
-    const return1y = calculateReturn(1, false);  // 1-year is already annual
-    const return3y = calculateReturn(3, true);   // Annualized (CAGR)
-    const return5y = calculateReturn(5, true);   // Annualized (CAGR)
+    const return1y = calculateReturn(1, false);
+    const return3y = calculateReturn(3, true);
+    const return5y = calculateReturn(5, true);
 
     return {
         currentPrice,
@@ -578,10 +631,8 @@ function calculateStats(prices, movingAverages) {
 
 // ===== Update UI =====
 function updateUI(ticker, displayName, stats) {
-    // Update stock name - show name with ticker
     elements.stockName.textContent = displayName !== ticker ? `${displayName} (${ticker})` : ticker;
 
-    // Update price info
     elements.priceInfo.hidden = false;
     elements.currentPrice.textContent = formatCurrency(stats.currentPrice);
 
@@ -589,7 +640,6 @@ function updateUI(ticker, displayName, stats) {
     elements.priceChange.textContent = `${changeSign}${formatCurrency(stats.priceChange)} (${changeSign}${stats.priceChangePercent.toFixed(2)}%)`;
     elements.priceChange.className = `price-change ${stats.priceChange >= 0 ? 'positive' : 'negative'}`;
 
-    // Update stats section
     elements.statsSection.hidden = false;
     elements.statPrice.textContent = formatCurrency(stats.currentPrice);
     elements.statMA200.textContent = formatCurrency(stats.currentMAs[200]);
@@ -597,7 +647,6 @@ function updateUI(ticker, displayName, stats) {
     elements.statHigh.textContent = formatCurrency(stats.high52Week);
     elements.statLow.textContent = formatCurrency(stats.low52Week);
 
-    // Update All-Time High
     if (elements.statATH) {
         elements.statATH.textContent = formatCurrency(stats.allTimeHigh);
         if (elements.athHint) {
@@ -611,11 +660,8 @@ function updateUI(ticker, displayName, stats) {
         }
     }
 
-    // Update RSI with overbought/oversold indicators
     if (stats.rsi !== null) {
         elements.statRSI.textContent = stats.rsi.toFixed(1);
-
-        // Remove previous classes
         elements.rsiCard.classList.remove('rsi-overbought', 'rsi-oversold');
 
         if (stats.rsi >= 70) {
@@ -632,85 +678,10 @@ function updateUI(ticker, displayName, stats) {
         elements.rsiHint.textContent = '';
     }
 
-    // Update P/E ratio - Show status message if applicable
-    if (stats.peRatio !== null && stats.peRatio !== undefined) {
-        elements.statPE.textContent = stats.peRatio.toFixed(1);
-        elements.peHint.textContent = '';
-        elements.peCard.hidden = false;
-    } else {
-        if (stats.rateLimited) {
-            elements.statPE.textContent = '--';
-            elements.peHint.textContent = 'API limit reached';
-            elements.peHint.className = 'stat-hint negative';
-            elements.peCard.hidden = false;
-        } else if (stats.unsupportedTicker) {
-            elements.statPE.textContent = '--';
-            elements.peHint.textContent = 'Not available';
-            elements.peHint.className = 'stat-hint';
-            elements.peCard.hidden = false;
-        } else if (stats.apiError) {
-            elements.statPE.textContent = '--';
-            elements.peHint.textContent = 'Failed to load';
-            elements.peHint.className = 'stat-hint negative';
-            elements.peCard.hidden = false;
-        } else {
-            elements.peCard.hidden = true;
-        }
-    }
+    updateFundamentalCard(stats.peRatio, elements.peCard, elements.statPE, elements.peHint, stats);
+    updateFundamentalCard(stats.pegRatio, elements.pegCard, elements.statPEG, elements.pegHint, stats);
+    updateFundamentalCard(stats.profitMargin, elements.profitMarginCard, elements.statProfitMargin, elements.profitMarginHint, stats, true);
 
-    // Update PEG Ratio - Show status message if applicable
-    if (stats.pegRatio !== null && stats.pegRatio !== undefined) {
-        elements.statPEG.textContent = stats.pegRatio.toFixed(2);
-        elements.pegHint.textContent = '';
-        elements.pegCard.hidden = false;
-    } else {
-        if (stats.rateLimited) {
-            elements.statPEG.textContent = '--';
-            elements.pegHint.textContent = 'API limit reached';
-            elements.pegHint.className = 'stat-hint negative';
-            elements.pegCard.hidden = false;
-        } else if (stats.unsupportedTicker) {
-            elements.statPEG.textContent = '--';
-            elements.pegHint.textContent = 'Not available';
-            elements.pegHint.className = 'stat-hint';
-            elements.pegCard.hidden = false;
-        } else if (stats.apiError) {
-            elements.statPEG.textContent = '--';
-            elements.pegHint.textContent = 'Failed to load';
-            elements.pegHint.className = 'stat-hint negative';
-            elements.pegCard.hidden = false;
-        } else {
-            elements.pegCard.hidden = true;
-        }
-    }
-
-    // Update Profit Margin - Show status message if applicable
-    if (stats.profitMargin !== null && stats.profitMargin !== undefined) {
-        elements.statProfitMargin.textContent = `${stats.profitMargin.toFixed(1)}%`;
-        elements.profitMarginHint.textContent = '';
-        elements.profitMarginCard.hidden = false;
-    } else {
-        if (stats.rateLimited) {
-            elements.statProfitMargin.textContent = '--';
-            elements.profitMarginHint.textContent = 'API limit reached';
-            elements.profitMarginHint.className = 'stat-hint negative';
-            elements.profitMarginCard.hidden = false;
-        } else if (stats.unsupportedTicker) {
-            elements.statProfitMargin.textContent = '--';
-            elements.profitMarginHint.textContent = 'Not available';
-            elements.profitMarginHint.className = 'stat-hint';
-            elements.profitMarginCard.hidden = false;
-        } else if (stats.apiError) {
-            elements.statProfitMargin.textContent = '--';
-            elements.profitMarginHint.textContent = 'Failed to load';
-            elements.profitMarginHint.className = 'stat-hint negative';
-            elements.profitMarginCard.hidden = false;
-        } else {
-            elements.profitMarginCard.hidden = true;
-        }
-    }
-
-    // Update multi-year returns
     const updateReturn = (value, element, card) => {
         card.classList.remove('return-positive', 'return-negative');
         if (value !== null) {
@@ -727,16 +698,41 @@ function updateUI(ticker, displayName, stats) {
     updateReturn(stats.return5y, elements.statReturn5y, elements.return5yCard);
 }
 
+function updateFundamentalCard(value, card, valueEl, hintEl, stats, isPercent = false) {
+    if (value !== null && value !== undefined) {
+        valueEl.textContent = isPercent ? `${value.toFixed(1)}%` : value.toFixed(isPercent ? 1 : (value < 10 ? 2 : 1));
+        hintEl.textContent = '';
+        card.hidden = false;
+    } else {
+        if (stats.rateLimited) {
+            valueEl.textContent = '--';
+            hintEl.textContent = 'API limit reached';
+            hintEl.className = 'stat-hint negative';
+            card.hidden = false;
+        } else if (stats.unsupportedTicker) {
+            valueEl.textContent = '--';
+            hintEl.textContent = 'Not available';
+            hintEl.className = 'stat-hint';
+            card.hidden = false;
+        } else if (stats.apiError) {
+            valueEl.textContent = '--';
+            hintEl.textContent = 'Failed to load';
+            hintEl.className = 'stat-hint negative';
+            card.hidden = false;
+        } else {
+            card.hidden = true;
+        }
+    }
+}
+
 // ===== Render Chart =====
 function renderChart(dates, prices, movingAverages) {
     const ctx = document.getElementById('stockChart').getContext('2d');
 
-    // Destroy existing chart
     if (stockChart) {
         stockChart.destroy();
     }
 
-    // Hide placeholder/loading/error and reset button states
     elements.chartPlaceholder.hidden = true;
     elements.chartLoading.hidden = true;
     elements.chartError.hidden = true;
@@ -744,18 +740,15 @@ function renderChart(dates, prices, movingAverages) {
     elements.btnText.hidden = false;
     elements.btnLoader.hidden = true;
 
-    // Create gradient for price line
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
     gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
     gradient.addColorStop(1, 'rgba(99, 102, 241, 0)');
 
-    // Define MA line configs - only 200 and 365 day
     const maConfigs = [
         { period: 200, label: '200-Day MA', color: CONFIG.COLORS.ma200, dash: [8, 4], width: 2 },
         { period: 365, label: '365-Day MA', color: CONFIG.COLORS.ma365, dash: [4, 2], width: 3 }
     ];
 
-    // Build datasets array
     const datasets = [
         {
             label: 'Price',
@@ -773,7 +766,6 @@ function renderChart(dates, prices, movingAverages) {
         }
     ];
 
-    // Add MA datasets
     maConfigs.forEach(config => {
         datasets.push({
             label: config.label,
@@ -806,7 +798,7 @@ function renderChart(dates, prices, movingAverages) {
             },
             plugins: {
                 legend: {
-                    display: false // Using custom legend
+                    display: false
                 },
                 tooltip: {
                     backgroundColor: 'rgba(18, 18, 26, 0.95)',
@@ -879,9 +871,8 @@ function showLoading() {
     elements.searchBtn.disabled = true;
     elements.btnText.hidden = true;
     elements.btnLoader.hidden = false;
-    elements.statsSection.hidden = true; // Hide stats during load
+    elements.statsSection.hidden = true;
 
-    // Destroy existing chart during loading
     if (stockChart) {
         stockChart.destroy();
         stockChart = null;
@@ -896,7 +887,7 @@ function showError(message) {
     elements.searchBtn.disabled = false;
     elements.btnText.hidden = false;
     elements.btnLoader.hidden = true;
-    elements.statsSection.hidden = true; // Hide stats on error
+    elements.statsSection.hidden = true;
 }
 
 function hideAllStates() {

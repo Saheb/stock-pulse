@@ -284,7 +284,7 @@ async function loadStockData(ticker, stockName = null) {
 
         const displayName = stockName || ticker;
 
-        updateUI(ticker, displayName, stats);
+        updateUI(ticker, displayName, stats, fundamentals);
         renderChart(displayDates, displayPrices, displayMAs);
 
     } catch (error) {
@@ -374,7 +374,13 @@ async function fetchFundamentalsAlphaVantage(ticker) {
             const result = {
                 peRatio: data.PERatio && data.PERatio !== 'None' ? parseFloat(data.PERatio) : null,
                 pegRatio: data.PEGRatio && data.PEGRatio !== 'None' ? parseFloat(data.PEGRatio) : null,
-                profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) * 100 : null
+                profitMargin: data.ProfitMargin && data.ProfitMargin !== 'None' ? parseFloat(data.ProfitMargin) : null,
+                roe: data.ROE && data.ROE !== 'None' ? parseFloat(data.ROE) : null,
+                debtToEquity: data.DebtToEquity && data.DebtToEquity !== 'None' ? parseFloat(data.DebtToEquity) : null,
+                pb: data.PB && data.PB !== 'None' ? parseFloat(data.PB) : null,
+                epsGrowth: data.EPSGrowth && data.EPSGrowth !== 'None' ? parseFloat(data.EPSGrowth) : null,
+                dividendYield: data.DividendYield && data.DividendYield !== 'None' ? parseFloat(data.DividendYield) : null,
+                marketCap: data.MarketCap && data.MarketCap !== 'None' ? parseFloat(data.MarketCap) : null
             };
 
             localStorage.setItem(cacheKey, JSON.stringify({
@@ -621,7 +627,47 @@ function calculateStats(prices, movingAverages) {
 }
 
 // ===== Update UI =====
-function updateUI(ticker, displayName, stats) {
+function renderFlags(fundamentals) {
+    const flagsContainer = elements.flagsSection.querySelector('.flags-container');
+    flagsContainer.innerHTML = '';
+
+    const lynchCriteria = [
+        { label: 'Trailing P/E < 25', condition: fundamentals.peRatio && fundamentals.peRatio < 25 },
+        { label: 'Debt/Equity < 35%', condition: fundamentals.debtToEquity && fundamentals.debtToEquity < 35 },
+        { label: 'EPS Growth > 15%', condition: fundamentals.epsGrowth && fundamentals.epsGrowth > 15 },
+        { label: 'PEG Ratio < 2', condition: fundamentals.pegRatio && fundamentals.pegRatio < 2 },
+        { label: 'Market Cap > $5B', condition: fundamentals.marketCap && fundamentals.marketCap > 5e9 }
+    ];
+
+    const buffettCriteria = [
+        { label: 'ROE > 15%', condition: fundamentals.roe && fundamentals.roe > 15 },
+        { label: 'Debt/Equity < 50%', condition: fundamentals.debtToEquity && fundamentals.debtToEquity < 50 },
+        { label: 'P/E < 20', condition: fundamentals.peRatio && fundamentals.peRatio < 20 },
+        { label: 'P/B < 1.5', condition: fundamentals.pb && fundamentals.pb < 1.5 },
+        { label: 'Dividend Yield > 2%', condition: fundamentals.dividendYield && fundamentals.dividendYield > 2 },
+        { label: 'Market Cap > $10B', condition: fundamentals.marketCap && fundamentals.marketCap > 10e9 }
+    ];
+
+    function createFlagCategory(title, criteria) {
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'flag-category';
+        categoryDiv.innerHTML = `<h4>${title}</h4><ul></ul>`;
+        const ul = categoryDiv.querySelector('ul');
+        criteria.forEach(criterion => {
+            const li = document.createElement('li');
+            const icon = criterion.condition ? '✓' : '✗';
+            const color = criterion.condition ? 'green' : 'red';
+            li.innerHTML = `<span style="color: ${color};">${icon}</span> ${criterion.label}`;
+            ul.appendChild(li);
+        });
+        return categoryDiv;
+    }
+
+    flagsContainer.appendChild(createFlagCategory("Peter Lynch's Multi-Bagger Rules", lynchCriteria));
+    flagsContainer.appendChild(createFlagCategory("Warren Buffett's Value Investing Criteria", buffettCriteria));
+}
+
+function updateUI(ticker, displayName, stats, fundamentals) {
     elements.stockName.textContent = displayName !== ticker ? `${displayName} (${ticker})` : ticker;
 
     elements.priceInfo.hidden = false;
@@ -633,6 +679,7 @@ function updateUI(ticker, displayName, stats) {
 
     elements.statsSection.hidden = false;
     elements.flagsSection.hidden = false;
+    renderFlags(fundamentals);
     elements.statPrice.textContent = formatCurrency(stats.currentPrice);
     elements.statMA200.textContent = formatCurrency(stats.currentMAs[200]);
     elements.statMA365.textContent = formatCurrency(stats.currentMAs[365]);

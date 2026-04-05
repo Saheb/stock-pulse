@@ -24,7 +24,13 @@ async function fetchFinnhubData(symbolUpper, finnhubApiKey) {
             return {
                 PERatio: metric.peTTM ? metric.peTTM.toString() : 'None',
                 PEGRatio: metric.pegRatio ? metric.pegRatio.toString() : 'None',
-                ProfitMargin: metric.netMargin ? (metric.netMargin * 100).toString() : 'None'
+                ProfitMargin: metric.netMargin ? (metric.netMargin * 100).toString() : 'None',
+                ROE: metric.roeTTM ? (metric.roeTTM * 100).toString() : 'None',
+                DebtToEquity: metric.totalDebtToTotalEquityQuarterly ? metric.totalDebtToTotalEquityQuarterly.toString() : 'None',
+                PB: metric.pbQuarterly ? metric.pbQuarterly.toString() : 'None',
+                EPSGrowth: metric.epsGrowthThisYear ? (metric.epsGrowthThisYear * 100).toString() : 'None',
+                DividendYield: metric.dividendYieldIndicatedAnnual ? (metric.dividendYieldIndicatedAnnual * 100).toString() : 'None',
+                MarketCap: metric.marketCapitalization ? metric.marketCapitalization.toString() : 'None'
             };
         }
     }

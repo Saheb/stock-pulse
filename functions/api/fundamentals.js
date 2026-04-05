@@ -23,8 +23,9 @@ export async function onRequest(context) {
     }
 
     const apiKey = env.ALPHA_VANTAGE_API_KEY;
-    if (!apiKey) {
-        return new Response(JSON.stringify({ error: 'API key not configured on server' }), {
+    const finnhubApiKey = env.FINNHUB_API_KEY;
+    if (!apiKey && !finnhubApiKey) {
+        return new Response(JSON.stringify({ error: 'No API keys configured on server' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
         });
@@ -78,22 +79,58 @@ export async function onRequest(context) {
 
         // Check for rate limiting (Alpha Vantage returns Note or Information field when rate limited)
         if (data.Note || data.Information) {
-            console.warn('Alpha Vantage rate limit reached');
-            const rateLimitedData = {
-                error: 'rate_limited',
-                message: 'Daily API limit reached. Resets at midnight UTC.',
-                limit: 25
-            };
-            // Cache only until midnight UTC, then retry
-            const ttl = Math.min(RATE_LIMIT_TTL, msUntilMidnightUTC());
-            inMemoryCache.set(cacheKey, { data: rateLimitedData, status: 429, timestamp: Date.now(), ttl });
-            return new Response(JSON.stringify(rateLimitedData), {
-                status: 429,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                },
-            });
+            console.warn('Alpha Vantage rate limit reached, trying fallback API');
+            let fallbackData = null;
+            if (finnhubApiKey) {
+                try {
+                    const finnhubUrl = `https://finnhub.io/api/v1/stock/metric?symbol=${symbolUpper}&metric=all&token=${finnhubApiKey}`;
+                    const finnhubResponse = await fetch(finnhubUrl, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        },
+                    });
+                    if (finnhubResponse.ok) {
+                        const finnhubData = await finnhubResponse.json();
+                        if (finnhubData.metric) {
+                            const metric = finnhubData.metric;
+                            // Map to Alpha Vantage format
+                            fallbackData = {
+                                PERatio: metric.peTTM ? metric.peTTM.toString() : 'None',
+                                PEGRatio: metric.pegRatio ? metric.pegRatio.toString() : 'None',
+                                ProfitMargin: metric.netMargin ? (metric.netMargin * 100).toString() : 'None'
+                            };
+                        }
+                    }
+                } catch (error) {
+                    console.error('Finnhub fallback error:', error);
+                }
+            }
+            if (fallbackData) {
+                // Cache the fallback data
+                inMemoryCache.set(cacheKey, { data: fallbackData, status: 200, timestamp: Date.now(), ttl: CACHE_TTL });
+                return new Response(JSON.stringify(fallbackData), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                    },
+                });
+            } else {
+                const rateLimitedData = {
+                    error: 'rate_limited',
+                    message: 'Daily API limit reached. No fallback available. Resets at midnight UTC.',
+                    limit: 25
+                };
+                const ttl = Math.min(RATE_LIMIT_TTL, msUntilMidnightUTC());
+                inMemoryCache.set(cacheKey, { data: rateLimitedData, status: 429, timestamp: Date.now(), ttl });
+                return new Response(JSON.stringify(rateLimitedData), {
+                    status: 429,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                    },
+                });
+            }
         }
 
         // Check for empty data (unsupported ticker)

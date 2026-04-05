@@ -632,20 +632,20 @@ function renderFlags(fundamentals) {
     flagsContainer.innerHTML = '';
 
     const lynchCriteria = [
-        { label: 'Trailing P/E < 25', condition: fundamentals.peRatio && fundamentals.peRatio < 25 },
-        { label: 'Debt/Equity < 35%', condition: fundamentals.debtToEquity && fundamentals.debtToEquity < 35 },
-        { label: 'EPS Growth > 15%', condition: fundamentals.epsGrowth && fundamentals.epsGrowth > 15 },
-        { label: 'PEG Ratio < 2', condition: fundamentals.pegRatio && fundamentals.pegRatio < 2 },
-        { label: 'Market Cap > $5B', condition: fundamentals.marketCap && fundamentals.marketCap > 5e9 }
+        { label: 'Trailing P/E < 25', value: fundamentals.peRatio, threshold: 25, operator: '<', unit: '' },
+        { label: 'Debt/Equity < 35%', value: fundamentals.debtToEquity, threshold: 35, operator: '<', unit: '%' },
+        { label: 'EPS Growth > 15%', value: fundamentals.epsGrowth, threshold: 15, operator: '>', unit: '%' },
+        { label: 'PEG Ratio < 2', value: fundamentals.pegRatio, threshold: 2, operator: '<', unit: '' },
+        { label: 'Market Cap > $5B', value: fundamentals.marketCap, threshold: 5e9, operator: '>', unit: '$', format: 'currency' }
     ];
 
     const buffettCriteria = [
-        { label: 'ROE > 15%', condition: fundamentals.roe && fundamentals.roe > 15 },
-        { label: 'Debt/Equity < 50%', condition: fundamentals.debtToEquity && fundamentals.debtToEquity < 50 },
-        { label: 'P/E < 20', condition: fundamentals.peRatio && fundamentals.peRatio < 20 },
-        { label: 'P/B < 1.5', condition: fundamentals.pb && fundamentals.pb < 1.5 },
-        { label: 'Dividend Yield > 2%', condition: fundamentals.dividendYield && fundamentals.dividendYield > 2 },
-        { label: 'Market Cap > $10B', condition: fundamentals.marketCap && fundamentals.marketCap > 10e9 }
+        { label: 'ROE > 15%', value: fundamentals.roe, threshold: 15, operator: '>', unit: '%' },
+        { label: 'Debt/Equity < 50%', value: fundamentals.debtToEquity, threshold: 50, operator: '<', unit: '%' },
+        { label: 'P/E < 20', value: fundamentals.peRatio, threshold: 20, operator: '<', unit: '' },
+        { label: 'P/B < 1.5', value: fundamentals.pb, threshold: 1.5, operator: '<', unit: '' },
+        { label: 'Dividend Yield > 2%', value: fundamentals.dividendYield, threshold: 2, operator: '>', unit: '%' },
+        { label: 'Market Cap > $10B', value: fundamentals.marketCap, threshold: 10e9, operator: '>', unit: '$', format: 'currency' }
     ];
 
     function createFlagCategory(title, criteria) {
@@ -655,9 +655,22 @@ function renderFlags(fundamentals) {
         const ul = categoryDiv.querySelector('ul');
         criteria.forEach(criterion => {
             const li = document.createElement('li');
-            const icon = criterion.condition ? '✓' : '✗';
-            const color = criterion.condition ? 'green' : 'red';
-            li.innerHTML = `<span style="color: ${color};">${icon}</span> ${criterion.label}`;
+            let displayText;
+            let color = 'gray';
+            if (criterion.value === null || criterion.value === undefined) {
+                displayText = `${criterion.label.split(' ')[0]} ${criterion.label.split(' ')[1]}: N/A`;
+            } else {
+                const formattedValue = criterion.format === 'currency' ?
+                    formatCurrency(criterion.value) :
+                    `${criterion.value.toFixed(criterion.unit === '%' ? 1 : 2)}${criterion.unit}`;
+                const condition = criterion.operator === '>' ?
+                    criterion.value > criterion.threshold :
+                    criterion.value < criterion.threshold;
+                const icon = condition ? '✓' : '✗';
+                color = condition ? 'green' : 'red';
+                displayText = `${criterion.label.split(' ')[0]} ${criterion.label.split(' ')[1]}: ${formattedValue} ${criterion.operator} ${criterion.threshold}${criterion.unit} ${icon}`;
+            }
+            li.innerHTML = `<span style="color: ${color};">${displayText}</span>`;
             ul.appendChild(li);
         });
         return categoryDiv;

@@ -588,6 +588,42 @@ body {
     color: var(--error);
 }
 
+/* ===== Flags Section ===== */
+.flags-section {
+    padding: var(--space-lg);
+}
+
+.flags-section h3 {
+    text-align: center;
+    margin-bottom: var(--space-lg);
+    font-size: 1.25rem;
+    color: var(--text-primary);
+}
+
+.flags-container {
+    display: flex;
+    gap: var(--space-xl);
+}
+
+.flag-category h4 {
+    font-size: 1.1rem;
+    margin-bottom: var(--space-md);
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.flag-category ul {
+    list-style: none;
+    padding: 0;
+}
+
+.flag-category li {
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
 /* ===== Footer ===== */
 .footer {
     text-align: center;

@@ -90,6 +90,7 @@ const elements = {
     errorMessage: document.getElementById('errorMessage'),
     retryBtn: document.getElementById('retryBtn'),
     statsSection: document.getElementById('statsSection'),
+    flagsSection: document.getElementById('flagsSection'),
     statPrice: document.getElementById('statPrice'),
     statMA200: document.getElementById('statMA200'),
     statMA365: document.getElementById('statMA365'),
@@ -638,6 +639,7 @@ function updateUI(ticker, displayName, stats) {
     elements.priceChange.className = `price-change ${stats.priceChange >= 0 ? 'positive' : 'negative'}`;
 
     elements.statsSection.hidden = false;
+    elements.flagsSection.hidden = false;
     elements.statPrice.textContent = formatCurrency(stats.currentPrice);
     elements.statMA200.textContent = formatCurrency(stats.currentMAs[200]);
     elements.statMA365.textContent = formatCurrency(stats.currentMAs[365]);
@@ -869,6 +871,7 @@ function showLoading() {
     elements.btnText.hidden = true;
     elements.btnLoader.hidden = false;
     elements.statsSection.hidden = true;
+    elements.flagsSection.hidden = true;
 
     if (stockChart) {
         stockChart.destroy();
@@ -885,6 +888,7 @@ function showError(message) {
     elements.btnText.hidden = false;
     elements.btnLoader.hidden = true;
     elements.statsSection.hidden = true;
+    elements.flagsSection.hidden = true;
 }
 
 function hideAllStates() {

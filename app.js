@@ -293,6 +293,14 @@ async function loadStockData(ticker, stockName = null) {
     }
 }
 
+function setRateLimitCircuitBreaker() {
+    const now = new Date();
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    localStorage.setItem('av_circuit_breaker', JSON.stringify({
+        until: tomorrow.getTime()
+    }));
+}
+
 // ===== Fetch Fundamentals from Alpha Vantage with Caching =====
 async function fetchFundamentalsAlphaVantage(ticker) {
     const internationalSuffixes = [
@@ -313,17 +321,7 @@ async function fetchFundamentalsAlphaVantage(ticker) {
         return { peRatio: null, pegRatio: null, profitMargin: null, unsupportedTicker: true };
     }
 
-    const circuitBreakerKey = 'av_circuit_breaker';
-    const circuitBreaker = localStorage.getItem(circuitBreakerKey);
-    if (circuitBreaker) {
-        const { until } = JSON.parse(circuitBreaker);
-        if (Date.now() < until) {
-            console.log('Circuit breaker active - skipping Alpha Vantage until UTC midnight');
-            return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
-        } else {
-            localStorage.removeItem(circuitBreakerKey);
-        }
-    }
+    // Circuit breaker removed to allow fallback API usage
 
     const cacheKey = `av_overview_${ticker}`;
     const cached = localStorage.getItem(cacheKey);
@@ -345,7 +343,6 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
             if (response.status === 429) {
                 console.warn('Alpha Vantage API limit reached');
-                setRateLimitCircuitBreaker();
                 return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
             }
 
@@ -356,9 +353,11 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
             const data = await response.json();
 
-            if (data.error === 'rate_limited') {
-                console.warn('Alpha Vantage API limit reached');
-                setRateLimitCircuitBreaker();
+            if (data.error === 'rate_limited' || data.error === 'both_rate_limited') {
+                console.warn('API limit reached');
+                if (data.error === 'both_rate_limited') {
+                    setRateLimitCircuitBreaker();
+                }
                 return { peRatio: null, pegRatio: null, profitMargin: null, rateLimited: true };
             }
 
@@ -391,13 +390,7 @@ async function fetchFundamentalsAlphaVantage(ticker) {
     });
 }
 
-function setRateLimitCircuitBreaker() {
-    const now = new Date();
-    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-    localStorage.setItem('av_circuit_breaker', JSON.stringify({
-        until: tomorrow.getTime()
-    }));
-}
+
 
 function clearOldCaches() {
     const keysToRemove = [];

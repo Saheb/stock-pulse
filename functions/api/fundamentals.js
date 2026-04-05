@@ -1,7 +1,14 @@
 // Cloudflare Pages Function - Alpha Vantage Proxy
 // Uses in-memory caching since Pages Functions don't support caches.default
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
+const RATE_LIMIT_TTL = 60 * 60 * 1000; // 1 hour for rate-limited responses
 const inMemoryCache = new Map();
+
+function msUntilMidnightUTC() {
+    const now = new Date();
+    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    return midnight.getTime() - now.getTime();
+}
 
 export async function onRequest(context) {
     const { request, env } = context;
@@ -28,7 +35,7 @@ export async function onRequest(context) {
 
     // Check in-memory cache first
     const cached = inMemoryCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    if (cached && Date.now() - cached.timestamp < cached.ttl) {
         return new Response(JSON.stringify(cached.data), {
             status: cached.status,
             headers: {
@@ -42,7 +49,7 @@ export async function onRequest(context) {
     if (inMemoryCache.size > 100) {
         const now = Date.now();
         for (const [key, val] of inMemoryCache) {
-            if (now - val.timestamp > CACHE_TTL) {
+            if (now - val.timestamp > val.ttl) {
                 inMemoryCache.delete(key);
             }
         }
@@ -74,9 +81,12 @@ export async function onRequest(context) {
             console.warn('Alpha Vantage rate limit reached');
             const rateLimitedData = {
                 error: 'rate_limited',
-                message: 'Daily API limit reached. Resets at midnight UTC.'
+                message: 'Daily API limit reached. Resets at midnight UTC.',
+                limit: 25
             };
-            inMemoryCache.set(cacheKey, { data: rateLimitedData, status: 429, timestamp: Date.now() });
+            // Cache only until midnight UTC, then retry
+            const ttl = Math.min(RATE_LIMIT_TTL, msUntilMidnightUTC());
+            inMemoryCache.set(cacheKey, { data: rateLimitedData, status: 429, timestamp: Date.now(), ttl });
             return new Response(JSON.stringify(rateLimitedData), {
                 status: 429,
                 headers: {
@@ -88,7 +98,7 @@ export async function onRequest(context) {
 
         // Check for empty data (unsupported ticker)
         if (Object.keys(data).length === 0) {
-            inMemoryCache.set(cacheKey, { data: {}, status: 200, timestamp: Date.now() });
+            inMemoryCache.set(cacheKey, { data: {}, status: 200, timestamp: Date.now(), ttl: CACHE_TTL });
             return new Response(JSON.stringify({}), {
                 status: 200,
                 headers: {
@@ -98,7 +108,7 @@ export async function onRequest(context) {
             });
         }
 
-        inMemoryCache.set(cacheKey, { data, status: 200, timestamp: Date.now() });
+        inMemoryCache.set(cacheKey, { data, status: 200, timestamp: Date.now(), ttl: CACHE_TTL });
 
         return new Response(JSON.stringify(data), {
             status: 200,

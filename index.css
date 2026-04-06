@@ -725,37 +725,3 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
 }
-}
-
-.api-status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
-    margin-top: 8px;
-}
-
-.status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-}
-
-.status-dot-ok {
-    background: #22c55e;
-}
-
-.status-dot-limited {
-    background: #ef4444;
-    animation: pulse-dot 1s infinite;
-}
-
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}

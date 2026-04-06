@@ -90,12 +90,6 @@ function updateApiStatus(avLimited = false, finnhubLimited = false) {
     }
 }
 
-// Function to check and update API status from fundamentals response
-function checkApiStatusFromResponse(response) {
-    // This would be called when we get a response from our API proxy
-    // For now, we'll handle this in the loadStockData function
-}
-
 // ===== DOM Elements =====
 const elements = {
     tickerInput: document.getElementById('tickerInput'),
@@ -259,28 +253,9 @@ async function loadStockData(ticker, stockName = null) {
         let fundamentals = fundamentalsResponse;
         let avLimited = false;
         let finnhubLimited = false;
-         
-        // Check if this is a response from our API proxy (has status property)
-        if (fundamentalsResponse && fundamentalsResponse.status !== undefined) {
-            // This is a Response object from fetch, we need to extract the JSON
-            const data = await fundamentalsResponse.json();
-            fundamentals = data;
-            // Check for rate limited status from our proxy
-            if (fundamentalsResponse.status === 429) {
-                // Check if it's specifically both APIs limited
-                if (data.error === 'both_rate_limited') {
-                    avLimited = true;
-                    finnhubLimited = true;
-                } else {
-                    // Default to assuming AV limited if we get 429 from proxy
-                    avLimited = true;
-                }
-            }
-        } else {
-            // Direct response from the deduplicate function (original AV call)
-            if (fundamentals?.rateLimited) {
-                avLimited = true;
-            }
+
+        if (fundamentals?.rateLimited) {
+            avLimited = true;
         }
 
         if (avLimited || finnhubLimited) {
@@ -333,7 +308,7 @@ async function loadStockData(ticker, stockName = null) {
         stats.peRatio = fundamentals.peRatio;
         stats.pegRatio = fundamentals.pegRatio;
         stats.profitMargin = fundamentals.profitMargin;
-        stats.rateLimited = fundamentals.rateLimited || isLimited;
+        stats.rateLimited = fundamentals.rateLimited;
         stats.unsupportedTicker = fundamentals.unsupportedTicker;
         stats.apiError = fundamentals.apiError;
 
@@ -391,7 +366,6 @@ async function fetchFundamentalsAlphaVantage(ticker) {
     }
 
     return deduplicate(`av_${ticker}`, async () => {
-        incrementUsage();
         try {
             const url = `${CONFIG.ALPHA_VANTAGE_ENDPOINT}${ticker}`;
             const response = await fetch(url);
@@ -449,19 +423,6 @@ async function fetchFundamentalsAlphaVantage(ticker) {
             return { peRatio: null, pegRatio: null, profitMargin: null, apiError: true };
         }
     });
-}
-
-
-
-function clearOldCaches() {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith('yahoo_chart_') || key.startsWith('av_overview_')) {
-            keysToRemove.push(key);
-        }
-    }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
 // ===== Fetch Stock Data with Caching =====
@@ -1014,15 +975,6 @@ function showError(message) {
     elements.btnLoader.hidden = true;
     elements.statsSection.hidden = true;
     elements.flagsSection.hidden = true;
-}
-
-function hideAllStates() {
-    elements.chartPlaceholder.hidden = true;
-    elements.chartLoading.hidden = true;
-    elements.chartError.hidden = true;
-    elements.searchBtn.disabled = false;
-    elements.btnText.hidden = false;
-    elements.btnLoader.hidden = true;
 }
 
 // ===== Utility Functions =====

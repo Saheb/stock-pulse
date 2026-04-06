@@ -1,4 +1,18 @@
 // Cloudflare Pages Function - CORS Proxy
+const ALLOWED_DOMAINS = [
+    'query1.finance.yahoo.com',
+    'query2.finance.yahoo.com',
+];
+
+function isAllowedUrl(urlString) {
+    try {
+        const url = new URL(urlString);
+        return ALLOWED_DOMAINS.includes(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
 export async function onRequest(context) {
     const { request } = context;
     const url = new URL(request.url);
@@ -9,6 +23,13 @@ export async function onRequest(context) {
     if (!targetUrl) {
         return new Response('Missing url parameter', {
             status: 400,
+            headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+    }
+
+    if (!isAllowedUrl(targetUrl)) {
+        return new Response('Blocked: domain not allowed', {
+            status: 403,
             headers: { 'Access-Control-Allow-Origin': '*' }
         });
     }

@@ -35,39 +35,15 @@ function deduplicate(key, fn) {
 let stockChart = null;
 let currentTicker = null;
 
-// ===== Usage Tracking =====
-const DAILY_AV_LIMIT = 25;
-
-function getUsageStats() {
-    const today = new Date().toUTCString().split(' ')[0];
-    const stored = localStorage.getItem('av_usage');
-    if (stored) {
-        const { date, count } = JSON.parse(stored);
-        if (date === today) {
-            return { date, count };
-        }
-    }
-    return { date: today, count: 0 };
-}
-
-function incrementUsage() {
-    const stats = getUsageStats();
-    stats.count++;
-    localStorage.setItem('av_usage', JSON.stringify(stats));
-    updateUsageBadge();
-}
-
-function updateUsageBadge() {
+// ===== API Status =====
+function updateApiStatus(isLimited = false) {
     const badge = document.getElementById('apiStatusBadge');
     const text = document.getElementById('apiStatusText');
     const dot = badge.querySelector('.status-dot');
     if (!badge || !text || !dot) return;
 
-    const { count } = getUsageStats();
-    const remaining = Math.max(0, DAILY_AV_LIMIT - count);
-
     dot.classList.remove('status-dot-ok', 'status-dot-limited');
-    if (remaining === 0) {
+    if (isLimited) {
         dot.classList.add('status-dot-limited');
         text.textContent = 'API limit reached';
     } else {
@@ -125,7 +101,7 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
     checkVersionAndClearCache();
     init();
-    updateUsageBadge();
+    updateApiStatus();
 });
 
 function checkVersionAndClearCache() {
@@ -236,6 +212,7 @@ async function loadStockData(ticker, stockName = null) {
         ]);
 
         if (fundamentals?.rateLimited) {
+            updateApiStatus(true);
             showError('Rate limit reached. Alpha Vantage daily limit hit. Data may be incomplete.');
             return;
         }

@@ -667,13 +667,6 @@ function formatMarketCap(value) {
     return formatCurrency(value);
 }
 
-function formatMarketCap(value) {
-    if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
-    if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-    if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-    return formatCurrency(value);
-}
-
 function renderFlags(fundamentals) {
     const flagsContainer = elements.flagsSection.querySelector('.flags-container');
     flagsContainer.innerHTML = '';
@@ -699,52 +692,6 @@ function renderFlags(fundamentals) {
         if (criterion.format === 'marketCap') {
             return formatMarketCap(criterion.value);
         }
-        if (criterion.unit === '%') {
-            return `${criterion.value.toFixed(1)}%`;
-        }
-        return criterion.value.toFixed(2);
-    }
-
-    function formatCriterionThreshold(criterion) {
-        if (criterion.format === 'marketCap') {
-            return formatMarketCap(criterion.threshold);
-        }
-        if (criterion.unit === '%') {
-            return `${criterion.threshold}%`;
-        }
-        return criterion.threshold.toString();
-    }
-
-    function createFlagCategory(title, criteria) {
-        const categoryDiv = document.createElement('div');
-        categoryDiv.className = 'flag-category';
-        categoryDiv.innerHTML = `<h4>${title}</h4><ul></ul>`;
-        const ul = categoryDiv.querySelector('ul');
-        criteria.forEach(criterion => {
-            const li = document.createElement('li');
-            let displayText;
-            let color = 'gray';
-            if (criterion.value === null || criterion.value === undefined) {
-                displayText = `${criterion.name}: N/A`;
-            } else {
-                const formattedValue = formatCriterionValue(criterion);
-                const formattedThreshold = formatCriterionThreshold(criterion);
-                const condition = criterion.operator === '>' ?
-                    criterion.value > criterion.threshold :
-                    criterion.value < criterion.threshold;
-                const icon = condition ? '\u2713' : '\u2717';
-                color = condition ? 'green' : 'red';
-                displayText = `${criterion.name}: ${formattedValue} ${condition ? 'meets' : 'below'} ${formattedThreshold} ${icon}`;
-            }
-            li.innerHTML = `<span style="color: ${color};">${displayText}</span>`;
-            ul.appendChild(li);
-        });
-        return categoryDiv;
-    }
-
-    flagsContainer.appendChild(createFlagCategory("Peter Lynch's Multi-Bagger Rules", lynchCriteria));
-    flagsContainer.appendChild(createFlagCategory("Warren Buffett's Value Investing Criteria", buffettCriteria));
-}
         if (criterion.unit === '%') {
             return `${criterion.value.toFixed(1)}%`;
         }

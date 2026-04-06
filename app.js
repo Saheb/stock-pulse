@@ -660,26 +660,60 @@ function calculateStats(prices, movingAverages) {
 }
 
 // ===== Update UI =====
+function formatMarketCap(value) {
+    if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+    if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+    return formatCurrency(value);
+}
+
+function formatMarketCap(value) {
+    if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+    if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+    return formatCurrency(value);
+}
+
 function renderFlags(fundamentals) {
     const flagsContainer = elements.flagsSection.querySelector('.flags-container');
     flagsContainer.innerHTML = '';
 
     const lynchCriteria = [
-        { label: 'Trailing P/E < 25', value: fundamentals.peRatio, threshold: 25, operator: '<', unit: '' },
-        { label: 'Debt/Equity < 35%', value: fundamentals.debtToEquity, threshold: 35, operator: '<', unit: '%' },
-        { label: 'EPS Growth > 15%', value: fundamentals.epsGrowth, threshold: 15, operator: '>', unit: '%' },
-        { label: 'PEG Ratio < 2', value: fundamentals.pegRatio, threshold: 2, operator: '<', unit: '' },
-        { label: 'Market Cap > $5B', value: fundamentals.marketCap, threshold: 5e9, operator: '>', unit: '$', format: 'currency' }
+        { name: 'Trailing P/E', value: fundamentals.peRatio, threshold: 25, operator: '<', unit: '' },
+        { name: 'Debt/Equity', value: fundamentals.debtToEquity, threshold: 35, operator: '<', unit: '%' },
+        { name: 'EPS Growth', value: fundamentals.epsGrowth, threshold: 15, operator: '>', unit: '%' },
+        { name: 'PEG Ratio', value: fundamentals.pegRatio, threshold: 2, operator: '<', unit: '' },
+        { name: 'Market Cap', value: fundamentals.marketCap, threshold: 5e9, operator: '>', format: 'marketCap' }
     ];
 
     const buffettCriteria = [
-        { label: 'ROE > 15%', value: fundamentals.roe, threshold: 15, operator: '>', unit: '%' },
-        { label: 'Debt/Equity < 50%', value: fundamentals.debtToEquity, threshold: 50, operator: '<', unit: '%' },
-        { label: 'P/E < 20', value: fundamentals.peRatio, threshold: 20, operator: '<', unit: '' },
-        { label: 'P/B < 1.5', value: fundamentals.pb, threshold: 1.5, operator: '<', unit: '' },
-        { label: 'Dividend Yield > 2%', value: fundamentals.dividendYield, threshold: 2, operator: '>', unit: '%' },
-        { label: 'Market Cap > $10B', value: fundamentals.marketCap, threshold: 10e9, operator: '>', unit: '$', format: 'currency' }
+        { name: 'ROE', value: fundamentals.roe, threshold: 15, operator: '>', unit: '%' },
+        { name: 'Debt/Equity', value: fundamentals.debtToEquity, threshold: 50, operator: '<', unit: '%' },
+        { name: 'P/E', value: fundamentals.peRatio, threshold: 20, operator: '<', unit: '' },
+        { name: 'P/B', value: fundamentals.pb, threshold: 1.5, operator: '<', unit: '' },
+        { name: 'Dividend Yield', value: fundamentals.dividendYield, threshold: 2, operator: '>', unit: '%' },
+        { name: 'Market Cap', value: fundamentals.marketCap, threshold: 10e9, operator: '>', format: 'marketCap' }
     ];
+
+    function formatCriterionValue(criterion) {
+        if (criterion.format === 'marketCap') {
+            return formatMarketCap(criterion.value);
+        }
+        if (criterion.unit === '%') {
+            return `${criterion.value.toFixed(1)}%`;
+        }
+        return criterion.value.toFixed(2);
+    }
+
+    function formatCriterionThreshold(criterion) {
+        if (criterion.format === 'marketCap') {
+            return formatMarketCap(criterion.threshold);
+        }
+        if (criterion.unit === '%') {
+            return `${criterion.threshold}%`;
+        }
+        return criterion.threshold.toString();
+    }
 
     function createFlagCategory(title, criteria) {
         const categoryDiv = document.createElement('div');
@@ -691,17 +725,62 @@ function renderFlags(fundamentals) {
             let displayText;
             let color = 'gray';
             if (criterion.value === null || criterion.value === undefined) {
-                displayText = `${criterion.label.split(' ')[0]} ${criterion.label.split(' ')[1]}: N/A`;
+                displayText = `${criterion.name}: N/A`;
             } else {
-                const formattedValue = criterion.format === 'currency' ?
-                    formatCurrency(criterion.value) :
-                    `${criterion.value.toFixed(criterion.unit === '%' ? 1 : 2)}${criterion.unit}`;
+                const formattedValue = formatCriterionValue(criterion);
+                const formattedThreshold = formatCriterionThreshold(criterion);
                 const condition = criterion.operator === '>' ?
                     criterion.value > criterion.threshold :
                     criterion.value < criterion.threshold;
-                const icon = condition ? '✓' : '✗';
+                const icon = condition ? '\u2713' : '\u2717';
                 color = condition ? 'green' : 'red';
-                displayText = `${criterion.label.split(' ')[0]} ${criterion.label.split(' ')[1]}: ${formattedValue} ${criterion.operator} ${criterion.threshold}${criterion.unit} ${icon}`;
+                displayText = `${criterion.name}: ${formattedValue} ${condition ? 'meets' : 'below'} ${formattedThreshold} ${icon}`;
+            }
+            li.innerHTML = `<span style="color: ${color};">${displayText}</span>`;
+            ul.appendChild(li);
+        });
+        return categoryDiv;
+    }
+
+    flagsContainer.appendChild(createFlagCategory("Peter Lynch's Multi-Bagger Rules", lynchCriteria));
+    flagsContainer.appendChild(createFlagCategory("Warren Buffett's Value Investing Criteria", buffettCriteria));
+}
+        if (criterion.unit === '%') {
+            return `${criterion.value.toFixed(1)}%`;
+        }
+        return criterion.value.toFixed(2);
+    }
+
+    function formatCriterionThreshold(criterion) {
+        if (criterion.format === 'marketCap') {
+            return formatMarketCap(criterion.threshold);
+        }
+        if (criterion.unit === '%') {
+            return `${criterion.threshold}%`;
+        }
+        return criterion.threshold.toString();
+    }
+
+    function createFlagCategory(title, criteria) {
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'flag-category';
+        categoryDiv.innerHTML = `<h4>${title}</h4><ul></ul>`;
+        const ul = categoryDiv.querySelector('ul');
+        criteria.forEach(criterion => {
+            const li = document.createElement('li');
+            let displayText;
+            let color = 'gray';
+            if (criterion.value === null || criterion.value === undefined) {
+                displayText = `${criterion.name}: N/A`;
+            } else {
+                const formattedValue = formatCriterionValue(criterion);
+                const formattedThreshold = formatCriterionThreshold(criterion);
+                const condition = criterion.operator === '>' ?
+                    criterion.value > criterion.threshold :
+                    criterion.value < criterion.threshold;
+                const icon = condition ? '\u2713' : '\u2717';
+                color = condition ? 'green' : 'red';
+                displayText = `${criterion.name}: ${formattedValue} ${condition ? 'meets' : 'below'} ${formattedThreshold} ${icon}`;
             }
             li.innerHTML = `<span style="color: ${color};">${displayText}</span>`;
             ul.appendChild(li);

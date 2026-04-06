@@ -21,13 +21,32 @@ const CONFIG = {
 
 // ===== Request Deduplication =====
 const pendingRequests = new Map();
+const PENDING_REQUEST_TIMEOUT = 30 * 1000; // 30 seconds
 
 function deduplicate(key, fn) {
     if (pendingRequests.has(key)) {
         return pendingRequests.get(key);
     }
-    const promise = fn().finally(() => pendingRequests.delete(key));
+    
+    // Create a promise that resolves with the result or rejects with an error
+    const promise = fn()
+        .then(result => {
+            return result;
+        })
+        .catch(error => {
+            throw error;
+        })
+        .finally(() => {
+            pendingRequests.delete(key);
+        });
+    
     pendingRequests.set(key, promise);
+    
+    // Set a timeout to prevent memory leaks if the promise never settles
+    setTimeout(() => {
+        pendingRequests.delete(key);
+    }, PENDING_REQUEST_TIMEOUT);
+    
     return promise;
 }
 
@@ -36,20 +55,45 @@ let stockChart = null;
 let currentTicker = null;
 
 // ===== API Status =====
-function updateApiStatus(isLimited = false) {
+let apiStatus = {
+    avLimited: false,
+    finnhubLimited: false,
+    lastUpdated: Date.now()
+};
+
+function updateApiStatus(avLimited = false, finnhubLimited = false) {
     const badge = document.getElementById('apiStatusBadge');
     const text = document.getElementById('apiStatusText');
     const dot = badge.querySelector('.status-dot');
     if (!badge || !text || !dot) return;
 
+    // Update status tracking
+    if (avLimited !== undefined) apiStatus.avLimited = avLimited;
+    if (finnhubLimited !== undefined) apiStatus.finnhubLimited = finnhubLimited;
+    apiStatus.lastUpdated = Date.now();
+
+    // Update UI based on status
     dot.classList.remove('status-dot-ok', 'status-dot-limited');
-    if (isLimited) {
+    
+    if (apiStatus.avLimited && apiStatus.finnhubLimited) {
         dot.classList.add('status-dot-limited');
-        text.textContent = 'API limit reached';
+        text.textContent = 'Both APIs limited';
+    } else if (apiStatus.avLimited) {
+        dot.classList.add('status-dot-limited');
+        text.textContent = 'Alpha Vantage limited';
+    } else if (apiStatus.finnhubLimited) {
+        dot.classList.add('status-dot-limited');
+        text.textContent = 'Finnhub limited';
     } else {
         dot.classList.add('status-dot-ok');
         text.textContent = 'Fundamentals ready';
     }
+}
+
+// Function to check and update API status from fundamentals response
+function checkApiStatusFromResponse(response) {
+    // This would be called when we get a response from our API proxy
+    // For now, we'll handle this in the loadStockData function
 }
 
 // ===== DOM Elements =====
@@ -101,7 +145,7 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
     checkVersionAndClearCache();
     init();
-    updateApiStatus();
+    updateApiStatus(); // Initial call with no parameters
 });
 
 function checkVersionAndClearCache() {
@@ -206,14 +250,48 @@ async function loadStockData(ticker, stockName = null) {
     currentTicker = ticker;
 
     try {
-        const [data, fundamentals] = await Promise.all([
+        const [data, fundamentalsResponse] = await Promise.all([
             fetchStockData(ticker),
             fetchFundamentalsAlphaVantage(ticker)
         ]);
 
-        if (fundamentals?.rateLimited) {
-            updateApiStatus(true);
-            showError('Rate limit reached. Alpha Vantage daily limit hit. Data may be incomplete.');
+// Handle the response from the API proxy which may have different structure
+        let fundamentals = fundamentalsResponse;
+        let avLimited = false;
+        let finnhubLimited = false;
+         
+        // Check if this is a response from our API proxy (has status property)
+        if (fundamentalsResponse && fundamentalsResponse.status !== undefined) {
+            // This is a Response object from fetch, we need to extract the JSON
+            const data = await fundamentalsResponse.json();
+            fundamentals = data;
+            // Check for rate limited status from our proxy
+            if (fundamentalsResponse.status === 429) {
+                // Check if it's specifically both APIs limited
+                if (data.error === 'both_rate_limited') {
+                    avLimited = true;
+                    finnhubLimited = true;
+                } else {
+                    // Default to assuming AV limited if we get 429 from proxy
+                    avLimited = true;
+                }
+            }
+        } else {
+            // Direct response from the deduplicate function (original AV call)
+            if (fundamentals?.rateLimited) {
+                avLimited = true;
+            }
+        }
+
+        if (avLimited || finnhubLimited) {
+            updateApiStatus(avLimited, finnhubLimited);
+            if (avLimited && finnhubLimited) {
+                showError('Rate limit reached. Both APIs are limited. Data may be incomplete.');
+            } else if (avLimited) {
+                showError('Rate limit reached. Alpha Vantage daily limit hit. Data may be incomplete.');
+            } else {
+                showError('Rate limit reached. Finnhub API limit hit. Data may be incomplete.');
+            }
             return;
         }
         if (fundamentals?.apiError) {
@@ -255,7 +333,7 @@ async function loadStockData(ticker, stockName = null) {
         stats.peRatio = fundamentals.peRatio;
         stats.pegRatio = fundamentals.pegRatio;
         stats.profitMargin = fundamentals.profitMargin;
-        stats.rateLimited = fundamentals.rateLimited;
+        stats.rateLimited = fundamentals.rateLimited || isLimited;
         stats.unsupportedTicker = fundamentals.unsupportedTicker;
         stats.apiError = fundamentals.apiError;
 
@@ -530,13 +608,27 @@ function calculateRSI(prices, period = 14) {
         }
     }
 
+    // Handle edge cases
+    if (avgLoss === 0 && avgGain === 0) {
+        // No changes - RSI should be 50 (neutral)
+        return 50;
+    }
+    
     if (avgLoss === 0) {
+        // All gains - RSI is 100
         return 100;
     }
+    
+    if (avgGain === 0) {
+        // All losses - RSI is 0
+        return 0;
+    }
+    
     const rs = avgGain / avgLoss;
     const rsi = 100 - (100 / (1 + rs));
-
-    return rsi;
+    
+    // Ensure RSI is within bounds
+    return Math.max(0, Math.min(100, rsi));
 }
 
 // ===== Calculate Statistics =====
@@ -571,15 +663,18 @@ function calculateStats(prices, movingAverages) {
         if (!isFinite(pastPrice) || !isFinite(currentPrice)) return null;
 
         const ratio = currentPrice / pastPrice;
-        if (ratio > 20 || ratio < 0.05) return null;
+        // More conservative bounds for extreme values
+        if (ratio > 100 || ratio < 0.01) return null;
 
         if (annualize && yearsAgo > 1) {
             const cagr = (Math.pow(ratio, 1 / yearsAgo) - 1) * 100;
-            if (!isFinite(cagr) || Math.abs(cagr) > 1000) return null;
+            // More restrictive bounds for CAGR
+            if (!isFinite(cagr) || Math.abs(cagr) > 200) return null;
             return cagr;
         }
         const simpleReturn = (ratio - 1) * 100;
-        if (!isFinite(simpleReturn) || Math.abs(simpleReturn) > 1000) return null;
+        // More restrictive bounds for simple returns
+        if (!isFinite(simpleReturn) || Math.abs(simpleReturn) > 200) return null;
         return simpleReturn;
     };
 

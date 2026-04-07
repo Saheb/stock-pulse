@@ -163,23 +163,6 @@ function clearAllStockCaches() {
     keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
-function checkAndClearRateLimitCache() {
-    const now = new Date();
-    const lastResetStr = localStorage.getItem('last_utc_cache_reset');
-    const todayUTC = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
-
-    if (lastResetStr !== todayUTC) {
-        console.log('New UTC day detected - clearing rate-limit caches');
-        clearAllStockCaches();
-        localStorage.removeItem('av_circuit_breaker');
-        localStorage.setItem('last_utc_cache_reset', todayUTC);
-        apiStatus.avLimited = false;
-        apiStatus.finnhubLimited = false;
-        updateApiStatus(false, false);
-    }
-}
-}
-
 function clearAllStockCaches() {
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {

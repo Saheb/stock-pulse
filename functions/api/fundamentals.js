@@ -10,6 +10,19 @@ function msUntilMidnightUTC() {
     return midnight.getTime() - now.getTime();
 }
 
+function toMetricString(value, transform = (x) => x) {
+    if (value === null || value === undefined || value === '') {
+        return 'None';
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return 'None';
+    }
+
+    return transform(numericValue).toString();
+}
+
 async function fetchFinnhubData(symbolUpper, finnhubApiKey) {
     const finnhubUrl = `https://finnhub.io/api/v1/stock/metric?symbol=${symbolUpper}&metric=all&token=${finnhubApiKey}`;
     const response = await fetch(finnhubUrl, {
@@ -22,15 +35,16 @@ async function fetchFinnhubData(symbolUpper, finnhubApiKey) {
         if (data.metric) {
             const metric = data.metric;
             return {
-                PERatio: metric.peTTM ? metric.peTTM.toString() : 'None',
-                PEGRatio: metric.pegRatio ? metric.pegRatio.toString() : 'None',
-                ProfitMargin: metric.netMargin ? (metric.netMargin * 100).toString() : 'None',
-                ROE: metric.roeTTM ? (metric.roeTTM * 100).toString() : 'None',
-                DebtToEquity: metric.totalDebtToTotalEquityQuarterly ? metric.totalDebtToTotalEquityQuarterly.toString() : 'None',
-                PB: metric.pbQuarterly ? metric.pbQuarterly.toString() : 'None',
-                EPSGrowth: metric.epsGrowthThisYear ? (metric.epsGrowthThisYear * 100).toString() : 'None',
-                DividendYield: metric.dividendYieldIndicatedAnnual ? (metric.dividendYieldIndicatedAnnual * 100).toString() : 'None',
-                MarketCap: metric.marketCapitalization ? metric.marketCapitalization.toString() : 'None'
+                PERatio: toMetricString(metric.peTTM),
+                PEGRatio: toMetricString(metric.pegRatio),
+                ProfitMargin: toMetricString(metric.netMargin),
+                ROE: toMetricString(metric.roeTTM),
+                DebtToEquity: toMetricString(metric.totalDebtToTotalEquityQuarterly),
+                PB: toMetricString(metric.pbQuarterly),
+                EPSGrowth: toMetricString(metric.epsGrowthThisYear),
+                DividendYield: toMetricString(metric.dividendYieldIndicatedAnnual),
+                // Finnhub reports market cap in millions of currency units.
+                MarketCap: toMetricString(metric.marketCapitalization, value => value * 1e6)
             };
         }
     }

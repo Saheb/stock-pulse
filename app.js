@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.1.1', // Increment on each deploy to bust caches
+    APP_VERSION: '1.1.2', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -309,7 +309,7 @@ async function loadStockData(ticker, stockName = null) {
             return;
         }
 
-        const { dates, prices, volumes } = parseTimeSeriesData(data);
+        const { dates, prices, volumes, meta } = parseTimeSeriesData(data);
 
         const movingAverages = {};
         CONFIG.MA_PERIODS.forEach(period => {
@@ -334,7 +334,7 @@ async function loadStockData(ticker, stockName = null) {
         stats.unsupportedTicker = fundamentals.unsupportedTicker;
         stats.apiError = fundamentals.apiError;
 
-        const displayName = stockName || ticker;
+        const displayName = stockName || meta.longName || meta.shortName || ticker;
 
         updateUI(ticker, displayName, stats, fundamentals);
         updateChartLegendVisibility(stats.currentMAs);
@@ -513,6 +513,7 @@ function parseTimeSeriesData(data) {
     const result = data.chart.result[0];
     const timestamps = result.timestamp;
     const quotes = result.indicators.quote[0];
+    const meta = result.meta || {};
 
     const entries = [];
     for (let i = 0; i < timestamps.length; i++) {
@@ -532,7 +533,18 @@ function parseTimeSeriesData(data) {
     const prices = entries.map(e => e.close);
     const volumes = entries.map(e => e.volume);
 
-    return { dates, prices, volumes };
+    return {
+        dates,
+        prices,
+        volumes,
+        meta: {
+            symbol: meta.symbol || null,
+            shortName: meta.shortName || null,
+            longName: meta.longName || null,
+            exchangeName: meta.exchangeName || null,
+            instrumentType: meta.instrumentType || null
+        }
+    };
 }
 
 // ===== Calculate Moving Average (sliding window O(n)) =====

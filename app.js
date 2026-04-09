@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.1.0', // Increment on each deploy to bust caches
+    APP_VERSION: '1.1.1', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -103,6 +103,8 @@ const elements = {
     chartError: document.getElementById('chartError'),
     errorMessage: document.getElementById('errorMessage'),
     retryBtn: document.getElementById('retryBtn'),
+    legendMA200: document.getElementById('legendMA200'),
+    legendMA365: document.getElementById('legendMA365'),
     statsSection: document.getElementById('statsSection'),
     flagsSection: document.getElementById('flagsSection'),
     statPrice: document.getElementById('statPrice'),
@@ -163,26 +165,18 @@ function clearAllStockCaches() {
     keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
-function clearAllStockCaches() {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith('yahoo_chart_') || key.startsWith('av_overview_') || key.startsWith('av_')) {
-            keysToRemove.push(key);
-        }
-    }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
+function clearRateLimitCaches() {
+    localStorage.removeItem('av_circuit_breaker');
 }
 
 function checkAndClearRateLimitCache() {
     const now = new Date();
     const lastResetStr = localStorage.getItem('last_utc_cache_reset');
-    const todayUTC = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+    const todayUTC = now.toISOString().split('T')[0];
 
     if (lastResetStr !== todayUTC) {
-        console.log('New UTC day detected - clearing rate-limit caches');
-        clearAllStockCaches();
-        localStorage.removeItem('av_circuit_breaker');
+        console.log('New UTC day detected - clearing rate-limit state');
+        clearRateLimitCaches();
         localStorage.setItem('last_utc_cache_reset', todayUTC);
         apiStatus.avLimited = false;
         apiStatus.finnhubLimited = false;
@@ -317,15 +311,11 @@ async function loadStockData(ticker, stockName = null) {
 
         const { dates, prices, volumes } = parseTimeSeriesData(data);
 
-        const minDays = Math.min(...CONFIG.MA_PERIODS);
-        if (prices.length < minDays) {
-            showError(`Not enough data to calculate moving averages. Need at least ${minDays} days of data.`);
-            return;
-        }
-
         const movingAverages = {};
         CONFIG.MA_PERIODS.forEach(period => {
-            movingAverages[period] = calculateMovingAverage(prices, period);
+            movingAverages[period] = prices.length >= period
+                ? calculateMovingAverage(prices, period)
+                : Array(prices.length).fill(null);
         });
 
         const displayDays = Math.min(500, prices.length);
@@ -347,6 +337,7 @@ async function loadStockData(ticker, stockName = null) {
         const displayName = stockName || ticker;
 
         updateUI(ticker, displayName, stats, fundamentals);
+        updateChartLegendVisibility(stats.currentMAs);
         renderChart(displayDates, displayPrices, displayMAs);
 
     } catch (error) {
@@ -627,9 +618,9 @@ function calculateRSI(prices, period = 14) {
 // ===== Calculate Statistics =====
 function calculateStats(prices, movingAverages) {
     const currentPrice = prices[prices.length - 1];
-    const previousPrice = prices[prices.length - 2];
-    const priceChange = currentPrice - previousPrice;
-    const priceChangePercent = (priceChange / previousPrice) * 100;
+    const previousPrice = prices.length > 1 ? prices[prices.length - 2] : currentPrice;
+    const priceChange = previousPrice != null ? currentPrice - previousPrice : 0;
+    const priceChangePercent = previousPrice ? (priceChange / previousPrice) * 100 : 0;
 
     const currentMAs = {};
     CONFIG.MA_PERIODS.forEach(period => {
@@ -841,6 +832,15 @@ function updateUI(ticker, displayName, stats, fundamentals) {
     updateReturn(stats.return5y, elements.statReturn5y, elements.return5yCard);
 }
 
+function updateChartLegendVisibility(currentMAs) {
+    if (elements.legendMA200) {
+        elements.legendMA200.hidden = currentMAs[200] == null;
+    }
+    if (elements.legendMA365) {
+        elements.legendMA365.hidden = currentMAs[365] == null;
+    }
+}
+
 function updateFundamentalCard(value, card, valueEl, hintEl, stats, isPercent = false) {
     if (value !== null && value !== undefined) {
         valueEl.textContent = isPercent ? `${value.toFixed(1)}%` : value.toFixed(isPercent ? 1 : (value < 10 ? 2 : 1));
@@ -910,6 +910,10 @@ function renderChart(dates, prices, movingAverages) {
     ];
 
     maConfigs.forEach(config => {
+        if (!movingAverages[config.period]?.some(value => value !== null)) {
+            return;
+        }
+
         datasets.push({
             label: config.label,
             data: movingAverages[config.period],
@@ -1016,6 +1020,7 @@ function showLoading() {
     elements.btnLoader.hidden = false;
     elements.statsSection.hidden = true;
     elements.flagsSection.hidden = true;
+    updateChartLegendVisibility({});
 
     if (stockChart) {
         stockChart.destroy();
@@ -1033,6 +1038,7 @@ function showError(message) {
     elements.btnLoader.hidden = true;
     elements.statsSection.hidden = true;
     elements.flagsSection.hidden = true;
+    updateChartLegendVisibility({});
 }
 
 // ===== Utility Functions =====

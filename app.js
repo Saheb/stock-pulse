@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.1.3', // Increment on each deploy to bust caches
+    APP_VERSION: '1.1.5', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -58,10 +58,11 @@ let currentTicker = null;
 let apiStatus = {
     avLimited: false,
     finnhubLimited: false,
+    fundamentalsUnavailable: false,
     lastUpdated: Date.now()
 };
 
-function updateApiStatus(avLimited = false, finnhubLimited = false) {
+function updateApiStatus(avLimited = false, finnhubLimited = false, fundamentalsUnavailable = false) {
     const badge = document.getElementById('apiStatusBadge');
     const text = document.getElementById('apiStatusText');
     const dot = badge.querySelector('.status-dot');
@@ -70,10 +71,11 @@ function updateApiStatus(avLimited = false, finnhubLimited = false) {
     // Update status tracking
     if (avLimited !== undefined) apiStatus.avLimited = avLimited;
     if (finnhubLimited !== undefined) apiStatus.finnhubLimited = finnhubLimited;
+    if (fundamentalsUnavailable !== undefined) apiStatus.fundamentalsUnavailable = fundamentalsUnavailable;
     apiStatus.lastUpdated = Date.now();
 
     // Update UI based on status
-    dot.classList.remove('status-dot-ok', 'status-dot-limited');
+    dot.classList.remove('status-dot-ok', 'status-dot-limited', 'status-dot-partial');
     
     if (apiStatus.avLimited && apiStatus.finnhubLimited) {
         dot.classList.add('status-dot-limited');
@@ -84,6 +86,9 @@ function updateApiStatus(avLimited = false, finnhubLimited = false) {
     } else if (apiStatus.finnhubLimited) {
         dot.classList.add('status-dot-limited');
         text.textContent = 'Finnhub limited';
+    } else if (apiStatus.fundamentalsUnavailable) {
+        dot.classList.add('status-dot-partial');
+        text.textContent = 'Price data ready, fundamentals unavailable for this market';
     } else {
         dot.classList.add('status-dot-ok');
         text.textContent = 'Fundamentals ready';
@@ -180,7 +185,8 @@ function checkAndClearRateLimitCache() {
         localStorage.setItem('last_utc_cache_reset', todayUTC);
         apiStatus.avLimited = false;
         apiStatus.finnhubLimited = false;
-        updateApiStatus(false, false);
+        apiStatus.fundamentalsUnavailable = false;
+        updateApiStatus(false, false, false);
     }
 }
 
@@ -285,7 +291,7 @@ async function loadStockData(ticker, stockName = null) {
         }
 
         if (avLimited || finnhubLimited) {
-            updateApiStatus(avLimited, finnhubLimited);
+            updateApiStatus(avLimited, finnhubLimited, false);
             if (avLimited && finnhubLimited) {
                 showError('Rate limit reached. Both APIs are limited. Data may be incomplete.');
             } else if (avLimited) {
@@ -299,11 +305,6 @@ async function loadStockData(ticker, stockName = null) {
             showError('Error fetching fundamentals. Please try again later.');
             return;
         }
-        if (fundamentals?.unsupportedTicker) {
-            showError('Fundamentals data not available for this ticker.');
-            return;
-        }
-
         if (data.error) {
             showError(data.error);
             return;
@@ -336,6 +337,7 @@ async function loadStockData(ticker, stockName = null) {
 
         const displayName = stockName || meta.longName || meta.shortName || ticker;
 
+        updateApiStatus(false, false, Boolean(fundamentals.unsupportedTicker));
         updateUI(ticker, displayName, stats, fundamentals);
         updateChartLegendVisibility(stats.currentMAs);
         renderChart(displayDates, displayPrices, displayMAs);
@@ -867,7 +869,7 @@ function updateFundamentalCard(value, card, valueEl, hintEl, stats, isPercent = 
             card.hidden = false;
         } else if (stats.unsupportedTicker) {
             valueEl.textContent = '--';
-            hintEl.textContent = 'Not available';
+            hintEl.textContent = 'Not available for this market';
             hintEl.className = 'stat-hint';
             card.hidden = false;
         } else if (stats.apiError) {

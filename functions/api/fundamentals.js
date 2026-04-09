@@ -23,6 +23,22 @@ function toMetricString(value, transform = (x) => x) {
     return transform(numericValue).toString();
 }
 
+function hasValue(value) {
+    return value !== null && value !== undefined && value !== '' && value !== 'None';
+}
+
+function mergeFundamentalData(primary = {}, fallback = {}) {
+    const merged = { ...fallback, ...primary };
+
+    for (const [key, value] of Object.entries(primary)) {
+        if (!hasValue(value) && hasValue(fallback[key])) {
+            merged[key] = fallback[key];
+        }
+    }
+
+    return merged;
+}
+
 async function fetchFinnhubData(symbolUpper, finnhubApiKey) {
     const finnhubUrl = `https://finnhub.io/api/v1/stock/metric?symbol=${symbolUpper}&metric=all&token=${finnhubApiKey}`;
     const response = await fetch(finnhubUrl, {
@@ -129,12 +145,17 @@ export async function onRequest(context) {
 
         let finalData = null;
         if (fulfilled.length > 0) {
-            // Prefer Alpha Vantage if available
             const avResult = fulfilled.find(r => r.source === 'av');
-            if (avResult) {
+            const finnhubResult = fulfilled.find(r => r.source === 'finnhub');
+
+            if (avResult && finnhubResult) {
+                finalData = mergeFundamentalData(avResult.data, finnhubResult.data);
+            } else if (avResult) {
                 finalData = avResult.data;
+            } else if (finnhubResult) {
+                finalData = finnhubResult.data;
             } else {
-                finalData = fulfilled[0].data; // Finnhub
+                finalData = fulfilled[0].data;
             }
         } else {
             // Both failed, check if rate limited

@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.1.2', // Increment on each deploy to bust caches
+    APP_VERSION: '1.1.3', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -450,9 +450,10 @@ async function fetchFundamentalsAlphaVantage(ticker) {
 
 // ===== Fetch Stock Data with Caching =====
 async function fetchStockData(ticker) {
-    const range = 'max';
     const interval = '1d';
-    const yahooUrl = `${CONFIG.YAHOO_API_BASE}/${ticker}?range=${range}&interval=${interval}`;
+    const period1 = 0;
+    const period2 = Math.floor(Date.now() / 1000);
+    const yahooUrl = `${CONFIG.YAHOO_API_BASE}/${ticker}?period1=${period1}&period2=${period2}&interval=${interval}&includePrePost=false&events=div%2Csplits`;
     const url = `${CONFIG.CORS_PROXY}${encodeURIComponent(yahooUrl)}`;
     const cacheKey = `yahoo_chart_${ticker}`;
 

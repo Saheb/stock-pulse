@@ -170,6 +170,11 @@ function clearAllStockCaches() {
     keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
+// Clear old caches - alias for clearAllStockCaches
+function clearOldCaches() {
+    clearAllStockCaches();
+}
+
 function clearRateLimitCaches() {
     localStorage.removeItem('av_circuit_breaker');
 }

@@ -1,0 +1,30 @@
+name = "stock-pulse-alerts"
+main = "src/index.js"
+compatibility_date = "2024-09-25"
+workers_dev = true
+
+# Cron trigger: weekdays (Mon-Fri) at 22:00 UTC (~5pm ET, after US market close).
+# Cloudflare Workers Cron uses UTC.
+[triggers]
+crons = ["0 22 * * 1-5"]
+
+# KV namespaces — create with: npx wrangler kv namespace create WATCHLIST
+[[kv_namespaces]]
+binding = "WATCHLIST"
+id = "8dcddc3ee30d44f19ce982597320dce0"
+
+[[kv_namespaces]]
+binding = "ALERT_STATE"
+id = "529ad954a44142c7882a37012d0a2447"
+
+# Secrets / vars — set with:
+#   npx wrangler secret put RESEND_API_KEY       (from https://resend.com/api-keys)
+#   npx wrangler secret put RECIPIENT_EMAIL
+#   npx wrangler secret put ALERT_API_TOKEN      (optional: protects watchlist endpoints)
+[vars]
+RECIPIENT_EMAIL = "sahebmotiani@gmail.com"
+# onboarding@resend.dev is Resend's shared testing sender. Use your own verified
+# domain (e.g. alerts@yourdomain.com) once configured in Resend.
+FROM_EMAIL = "onboarding@resend.dev"
+FROM_NAME = "StockPulse Alerts"
+MA_PERIODS = "200,365"

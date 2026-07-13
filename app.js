@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.1.5', // Increment on each deploy to bust caches
+    APP_VERSION: '1.2.0', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -8,6 +8,10 @@ const CONFIG = {
     YAHOO_CACHE_TTL: 5 * 60 * 1000,
     AV_CACHE_TTL: 24 * 60 * 60 * 1000,
     EMPTY_RESPONSE_TTL: 7 * 24 * 60 * 60 * 1000,
+    // Alerts Worker URL — deployed separately from Pages (Cron Triggers are Workers-only).
+    // Update this after deploying the worker: `npx wrangler deploy` in the worker/ folder.
+    ALERTS_WORKER_URL: 'https://stock-pulse-alerts.s37.workers.dev',
+    ALERTS_API_TOKEN: null, // Set if you configured ALERT_API_TOKEN secret on the worker
     COLORS: {
         price: '#6366f1',
         priceGradient: 'rgba(99, 102, 241, 0.1)',
@@ -139,7 +143,14 @@ const elements = {
     return5yCard: document.getElementById('return5yCard'),
     tickerChips: document.querySelectorAll('.ticker-chip'),
     btnText: document.querySelector('.btn-text'),
-    btnLoader: document.querySelector('.btn-loader')
+    btnLoader: document.querySelector('.btn-loader'),
+    alertTickerInput: document.getElementById('alertTickerInput'),
+    addAlertBtn: document.getElementById('addAlertBtn'),
+    alertsList: document.getElementById('alertsList'),
+    alertsEmpty: document.getElementById('alertsEmpty'),
+    alertsStatus: document.getElementById('alertsStatus'),
+    alertsStatusEmail: document.getElementById('alertsStatusEmail'),
+    alertsStatusDot: document.getElementById('alertsStatusDot')
 };
 
 // ===== Initialize =====
@@ -209,6 +220,8 @@ function init() {
             loadStockData(ticker);
         });
     });
+
+    initAlerts();
 }
 
 // ===== Search Handler =====
@@ -1059,6 +1072,139 @@ function showError(message) {
     elements.statsSection.hidden = true;
     elements.flagsSection.hidden = true;
     updateChartLegendVisibility({});
+}
+
+// ===== Price Alerts (Worker-backed) =====
+let alertsWatchlist = [];
+
+function alertsEndpoint(path = '') {
+    return `${CONFIG.ALERTS_WORKER_URL}/api/alerts${path}`;
+}
+
+function alertsHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (CONFIG.ALERTS_API_TOKEN) {
+        headers['Authorization'] = `Bearer ${CONFIG.ALERTS_API_TOKEN}`;
+    }
+    return headers;
+}
+
+async function initAlerts() {
+    elements.addAlertBtn.addEventListener('click', handleAddAlert);
+    elements.alertTickerInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleAddAlert();
+    });
+
+    await loadAlerts();
+}
+
+async function loadAlerts() {
+    try {
+        const response = await fetch(alertsEndpoint());
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        alertsWatchlist = data.tickers || [];
+
+        if (data.email) {
+            elements.alertsStatusEmail.textContent = `Alerts → ${data.email}`;
+            elements.alertsStatus.hidden = false;
+            elements.alertsStatusDot.classList.add('alerts-status-dot-ok');
+        }
+        renderAlerts();
+    } catch (error) {
+        console.error('Failed to load alerts watchlist:', error.message);
+        elements.alertsEmpty.textContent = 'Unable to reach alerts service. Check that the Worker is deployed.';
+        elements.alertsStatusDot.classList.add('alerts-status-dot-error');
+        elements.alertsStatus.hidden = false;
+        elements.alertsStatusEmail.textContent = 'Alerts service offline';
+    }
+}
+
+function renderAlerts() {
+    elements.alertsList.innerHTML = '';
+
+    if (alertsWatchlist.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'alerts-empty';
+        empty.textContent = 'No stocks in your alert list yet. Add one above.';
+        elements.alertsList.appendChild(empty);
+        return;
+    }
+
+    for (const ticker of alertsWatchlist) {
+        const chip = document.createElement('div');
+        chip.className = 'alert-chip';
+        chip.innerHTML = `
+            <span class="alert-chip-ticker" title="Load chart">${ticker}</span>
+            <button class="alert-chip-remove" title="Remove" aria-label="Remove ${ticker}">&times;</button>
+        `;
+        chip.querySelector('.alert-chip-ticker').addEventListener('click', () => {
+            elements.tickerInput.value = ticker;
+            loadStockData(ticker);
+        });
+        chip.querySelector('.alert-chip-remove').addEventListener('click', () => handleRemoveAlert(ticker));
+        elements.alertsList.appendChild(chip);
+    }
+}
+
+async function handleAddAlert() {
+    const input = elements.alertTickerInput.value.trim().toUpperCase();
+    elements.alertTickerInput.value = '';
+    if (!input) return;
+
+    if (!/^[A-Z]{1,6}(\.[A-Z]{1,3})?$/.test(input)) {
+        flashAlertError('Invalid ticker format');
+        return;
+    }
+    if (alertsWatchlist.includes(input)) {
+        flashAlertError(`${input} is already in your alert list`);
+        return;
+    }
+
+    elements.addAlertBtn.disabled = true;
+    try {
+        const response = await fetch(alertsEndpoint(), {
+            method: 'POST',
+            headers: alertsHeaders(),
+            body: JSON.stringify({ ticker: input })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        alertsWatchlist = data.tickers || [];
+        renderAlerts();
+    } catch (error) {
+        flashAlertError(`Failed to add ${input}: ${error.message}`);
+    } finally {
+        elements.addAlertBtn.disabled = false;
+    }
+}
+
+async function handleRemoveAlert(ticker) {
+    try {
+        const response = await fetch(`${alertsEndpoint()}?ticker=${encodeURIComponent(ticker)}`, {
+            method: 'DELETE',
+            headers: alertsHeaders()
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        alertsWatchlist = data.tickers || [];
+        renderAlerts();
+    } catch (error) {
+        flashAlertError(`Failed to remove ${ticker}: ${error.message}`);
+    }
+}
+
+function flashAlertError(message) {
+    const empty = elements.alertsList.querySelector('.alerts-empty');
+    const target = empty || elements.alertsList.firstChild;
+    if (!target) return;
+    const original = target.textContent;
+    target.textContent = message;
+    target.style.color = 'var(--error)';
+    setTimeout(() => {
+        target.textContent = original;
+        target.style.color = '';
+    }, 3000);
 }
 
 // ===== Utility Functions =====

@@ -1,0 +1,16 @@
+{
+  "name": "stock-pulse-alerts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker for StockPulse price alerts (MA crossover detection + email)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:kv": "wrangler kv:namespace create WATCHLIST && wrangler kv:namespace create ALERT_STATE",
+    "trigger": "curl -X POST \"$ALERT_WORKER_URL/api/alerts/check?token=$ALERT_API_TOKEN\""
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

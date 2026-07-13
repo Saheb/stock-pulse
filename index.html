@@ -53,6 +53,25 @@
                 </div>
             </section>
 
+            <section class="alerts-section glass-card" id="alertsSection">
+                <div class="alerts-header">
+                    <h2>🔔 Price Alerts</h2>
+                    <span class="alerts-subtitle">Get emailed when a stock crosses below its 200d or 365d MA</span>
+                </div>
+                <div class="alerts-status" id="alertsStatus" hidden>
+                    <span class="alerts-status-email" id="alertsStatusEmail"></span>
+                    <span class="alerts-status-dot" id="alertsStatusDot"></span>
+                </div>
+                <div class="alerts-add-wrapper">
+                    <input type="text" id="alertTickerInput" placeholder="Add a ticker to watch (e.g., AAPL)"
+                        autocomplete="off">
+                    <button id="addAlertBtn" class="btn-primary btn-small">Add</button>
+                </div>
+                <div class="alerts-list" id="alertsList">
+                    <div class="alerts-empty" id="alertsEmpty">No stocks in your alert list yet. Add one above.</div>
+                </div>
+            </section>
+
             <section class="chart-section glass-card" id="chartSection">
                 <div class="chart-header">
                     <div class="stock-info">
@@ -196,7 +215,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="app.js?v=1.1.5"></script>
+    <script src="app.js?v=1.2.0"></script>
 </body>
 
 </html>

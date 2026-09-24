@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const CONFIG = {
-    APP_VERSION: '1.2.0', // Increment on each deploy to bust caches
+    APP_VERSION: '1.3.0', // Increment on each deploy to bust caches
     YAHOO_API_BASE: 'https://query1.finance.yahoo.com/v8/finance/chart',
     YAHOO_SEARCH_BASE: 'https://query1.finance.yahoo.com/v1/finance/search',
     CORS_PROXY: '/api/proxy?url=',
@@ -11,7 +11,7 @@ const CONFIG = {
     // Alerts Worker URL — deployed separately from Pages (Cron Triggers are Workers-only).
     // Update this after deploying the worker: `npx wrangler deploy` in the worker/ folder.
     ALERTS_WORKER_URL: 'https://stock-pulse-alerts.s37.workers.dev',
-    ALERTS_API_TOKEN: null, // Set if you configured ALERT_API_TOKEN secret on the worker
+    ALERTS_EMAIL_KEY: 'stockpulse_alerts_email', // localStorage key; the email is the "session"
     COLORS: {
         price: '#6366f1',
         priceGradient: 'rgba(99, 102, 241, 0.1)',
@@ -147,10 +147,15 @@ const elements = {
     alertTickerInput: document.getElementById('alertTickerInput'),
     addAlertBtn: document.getElementById('addAlertBtn'),
     alertsList: document.getElementById('alertsList'),
-    alertsEmpty: document.getElementById('alertsEmpty'),
     alertsStatus: document.getElementById('alertsStatus'),
     alertsStatusEmail: document.getElementById('alertsStatusEmail'),
-    alertsStatusDot: document.getElementById('alertsStatusDot')
+    alertsStatusDot: document.getElementById('alertsStatusDot'),
+    alertsEmailForm: document.getElementById('alertsEmailForm'),
+    alertEmailInput: document.getElementById('alertEmailInput'),
+    saveAlertEmailBtn: document.getElementById('saveAlertEmailBtn'),
+    changeAlertEmailBtn: document.getElementById('changeAlertEmailBtn'),
+    alertsWatchlistPanel: document.getElementById('alertsWatchlistPanel'),
+    alertsMessage: document.getElementById('alertsMessage')
 };
 
 // ===== Initialize =====
@@ -1075,18 +1080,54 @@ function showError(message) {
 }
 
 // ===== Price Alerts (Worker-backed) =====
+// No login: the user's email is the identity, remembered in localStorage.
 let alertsWatchlist = [];
+let alertsEmail = null;
+let alertsMessageTimer = null;
 
-function alertsEndpoint(path = '') {
-    return `${CONFIG.ALERTS_WORKER_URL}/api/alerts${path}`;
+function alertsEndpoint(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return `${CONFIG.ALERTS_WORKER_URL}/api/alerts${query ? `?${query}` : ''}`;
 }
 
-function alertsHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
-    if (CONFIG.ALERTS_API_TOKEN) {
-        headers['Authorization'] = `Bearer ${CONFIG.ALERTS_API_TOKEN}`;
+function normalizeAlertEmail(input) {
+    const email = (input || '').trim().toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+function readSavedAlertEmail() {
+    try {
+        return localStorage.getItem(CONFIG.ALERTS_EMAIL_KEY);
+    } catch {
+        return null;
     }
-    return headers;
+}
+
+function saveAlertEmail(email) {
+    try {
+        if (email) localStorage.setItem(CONFIG.ALERTS_EMAIL_KEY, email);
+        else localStorage.removeItem(CONFIG.ALERTS_EMAIL_KEY);
+    } catch {
+        // Storage unavailable (private mode); the email just won't persist.
+    }
+}
+
+// Links in alert emails carry ?email=… so opening one on a new device picks up the list.
+function takeEmailFromUrl() {
+    const url = new URL(window.location.href);
+    const email = normalizeAlertEmail(url.searchParams.get('email'));
+    if (url.searchParams.has('email')) {
+        url.searchParams.delete('email');
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+    return email;
+}
+
+async function alertsRequest(url, options) {
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
 }
 
 async function initAlerts() {
@@ -1094,39 +1135,80 @@ async function initAlerts() {
     elements.alertTickerInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleAddAlert();
     });
+    elements.saveAlertEmailBtn.addEventListener('click', handleSaveAlertEmail);
+    elements.alertEmailInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleSaveAlertEmail();
+    });
+    elements.changeAlertEmailBtn.addEventListener('click', handleChangeAlertEmail);
 
-    await loadAlerts();
-}
-
-async function loadAlerts() {
-    try {
-        const response = await fetch(alertsEndpoint());
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        alertsWatchlist = data.tickers || [];
-
-        if (data.email) {
-            elements.alertsStatusEmail.textContent = `Alerts → ${data.email}`;
-            elements.alertsStatus.hidden = false;
-            elements.alertsStatusDot.classList.add('alerts-status-dot-ok');
-        }
-        renderAlerts();
-    } catch (error) {
-        console.error('Failed to load alerts watchlist:', error.message);
-        elements.alertsEmpty.textContent = 'Unable to reach alerts service. Check that the Worker is deployed.';
-        elements.alertsStatusDot.classList.add('alerts-status-dot-error');
-        elements.alertsStatus.hidden = false;
-        elements.alertsStatusEmail.textContent = 'Alerts service offline';
+    const email = takeEmailFromUrl() || normalizeAlertEmail(readSavedAlertEmail());
+    if (email) {
+        await setAlertsEmail(email);
+    } else {
+        showAlertsEmailForm();
     }
 }
 
-function renderAlerts() {
+function showAlertsEmailForm(prefill = '') {
+    elements.alertsEmailForm.hidden = false;
+    elements.alertsWatchlistPanel.hidden = true;
+    elements.alertsStatus.hidden = true;
+    elements.alertEmailInput.value = prefill;
+}
+
+async function setAlertsEmail(email) {
+    alertsEmail = email;
+    saveAlertEmail(email);
+    elements.alertsEmailForm.hidden = true;
+    elements.alertsWatchlistPanel.hidden = false;
+    elements.alertsStatus.hidden = false;
+    elements.changeAlertEmailBtn.hidden = false;
+    elements.alertsStatusEmail.textContent = `Alerts → ${email}`;
+    await loadAlerts();
+}
+
+async function handleSaveAlertEmail() {
+    const email = normalizeAlertEmail(elements.alertEmailInput.value);
+    if (!email) {
+        showAlertsMessage('Enter a valid email address', 'error');
+        return;
+    }
+    hideAlertsMessage();
+    await setAlertsEmail(email);
+}
+
+function handleChangeAlertEmail() {
+    const previous = alertsEmail;
+    alertsEmail = null;
+    alertsWatchlist = [];
+    saveAlertEmail(null);
+    hideAlertsMessage();
+    showAlertsEmailForm(previous || '');
+    elements.alertEmailInput.focus();
+}
+
+async function loadAlerts() {
+    elements.alertsStatusDot.classList.remove('alerts-status-dot-ok', 'alerts-status-dot-error');
+    try {
+        const data = await alertsRequest(alertsEndpoint({ email: alertsEmail }));
+        alertsWatchlist = data.tickers || [];
+        elements.alertsStatusDot.classList.add('alerts-status-dot-ok');
+        renderAlerts();
+    } catch (error) {
+        console.error('Failed to load alerts watchlist:', error.message);
+        elements.alertsStatusDot.classList.add('alerts-status-dot-error');
+        alertsWatchlist = [];
+        renderAlerts('Unable to reach alerts service. Check that the Worker is deployed.');
+    }
+}
+
+function renderAlerts(emptyMessage = 'No stocks in your alert list yet. Add one above.') {
     elements.alertsList.innerHTML = '';
 
     if (alertsWatchlist.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'alerts-empty';
-        empty.textContent = 'No stocks in your alert list yet. Add one above.';
+        empty.textContent = emptyMessage;
         elements.alertsList.appendChild(empty);
         return;
     }
@@ -1149,31 +1231,36 @@ function renderAlerts() {
 
 async function handleAddAlert() {
     const input = elements.alertTickerInput.value.trim().toUpperCase();
-    elements.alertTickerInput.value = '';
-    if (!input) return;
+    if (!input || !alertsEmail) return;
 
     if (!/^[A-Z]{1,6}(\.[A-Z]{1,3})?$/.test(input)) {
-        flashAlertError('Invalid ticker format');
+        showAlertsMessage('Invalid ticker format', 'error');
         return;
     }
     if (alertsWatchlist.includes(input)) {
-        flashAlertError(`${input} is already in your alert list`);
+        showAlertsMessage(`${input} is already in your alert list`, 'error');
         return;
     }
 
     elements.addAlertBtn.disabled = true;
+    showAlertsMessage(`Adding ${input}…`);
     try {
-        const response = await fetch(alertsEndpoint(), {
+        const data = await alertsRequest(alertsEndpoint(), {
             method: 'POST',
-            headers: alertsHeaders(),
-            body: JSON.stringify({ ticker: input })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: alertsEmail, ticker: input })
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        elements.alertTickerInput.value = '';
         alertsWatchlist = data.tickers || [];
         renderAlerts();
+        if (data.notified) {
+            showAlertsMessage(`Watching ${input} — confirmation sent to ${alertsEmail}`, 'success');
+        } else {
+            console.warn('Confirmation email failed:', data.notifyError);
+            showAlertsMessage(`Watching ${input}, but the confirmation email couldn't be sent`, 'error');
+        }
     } catch (error) {
-        flashAlertError(`Failed to add ${input}: ${error.message}`);
+        showAlertsMessage(`Failed to add ${input}: ${error.message}`, 'error');
     } finally {
         elements.addAlertBtn.disabled = false;
     }
@@ -1181,30 +1268,30 @@ async function handleAddAlert() {
 
 async function handleRemoveAlert(ticker) {
     try {
-        const response = await fetch(`${alertsEndpoint()}?ticker=${encodeURIComponent(ticker)}`, {
-            method: 'DELETE',
-            headers: alertsHeaders()
+        const data = await alertsRequest(alertsEndpoint({ email: alertsEmail, ticker }), {
+            method: 'DELETE'
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
         alertsWatchlist = data.tickers || [];
         renderAlerts();
+        hideAlertsMessage();
     } catch (error) {
-        flashAlertError(`Failed to remove ${ticker}: ${error.message}`);
+        showAlertsMessage(`Failed to remove ${ticker}: ${error.message}`, 'error');
     }
 }
 
-function flashAlertError(message) {
-    const empty = elements.alertsList.querySelector('.alerts-empty');
-    const target = empty || elements.alertsList.firstChild;
-    if (!target) return;
-    const original = target.textContent;
-    target.textContent = message;
-    target.style.color = 'var(--error)';
-    setTimeout(() => {
-        target.textContent = original;
-        target.style.color = '';
-    }, 3000);
+function showAlertsMessage(message, type = 'info') {
+    clearTimeout(alertsMessageTimer);
+    elements.alertsMessage.textContent = message;
+    elements.alertsMessage.className = `alerts-message alerts-message-${type}`;
+    elements.alertsMessage.hidden = false;
+    if (type !== 'info') {
+        alertsMessageTimer = setTimeout(hideAlertsMessage, 6000);
+    }
+}
+
+function hideAlertsMessage() {
+    clearTimeout(alertsMessageTimer);
+    elements.alertsMessage.hidden = true;
 }
 
 // ===== Utility Functions =====

@@ -107,10 +107,17 @@ Daily email alerts when a stock's price crosses **below** its 200-day or 365-day
 
 ### How it works
 
-1. **Cron** triggers the worker weekdays after market close (`22:00 UTC`).
-2. For each ticker in your watchlist, the worker fetches daily closes from Yahoo Finance, computes 200d/365d MAs, and compares against the stored "was above" state.
-3. If a price was above an MA and is now below it (a **crossover**), an email alert is sent.
-4. State is persisted in KV so missed runs still detect the crossover on the next check.
+1. Anyone can use the **🔔 Price Alerts** card: they enter their email once (remembered in the browser — no login) and add tickers. Each email has its own list in KV (`user:<email>` → tickers), and a confirmation email is sent whenever a stock is added.
+2. **Cron** triggers the worker weekdays after market close (`22:00 UTC`).
+3. For each ticker on anyone's list (fetched once, however many people watch it), the worker fetches daily closes from Yahoo Finance, computes 200d/365d MAs, and compares against the stored "was above" state.
+4. If a price was above an MA and is now below it (a **crossover**), each subscriber gets one email covering their tickers.
+5. State is persisted in KV so missed runs still detect the crossover on the next check.
+
+Links in the emails include `?email=…`, so opening one on a new device loads that person's list.
+
+The owner (`RECIPIENT_EMAIL` in `wrangler.toml`) gets an email whenever a new address adds its first stock, listing everyone with active alerts.
+
+> Because there's no login, anyone who knows an email address can view or edit that address's list. Fine for family and friends; add magic-link verification before sharing it widely.
 
 ### Setup
 
@@ -125,19 +132,25 @@ npx wrangler kv namespace create ALERT_STATE
 # 2. Copy the namespace IDs printed above into wrangler.toml (replace REPLACE_WITH_...)
 
 # 3. Set secrets
-npx wrangler secret put RESEND_API_KEY       # from https://resend.com/api-keys
-npx wrangler secret put RECIPIENT_EMAIL      # sahebmotiani@gmail.com (already in vars)
-npx wrangler secret put ALERT_API_TOKEN      # pick a random secret string (protects watchlist endpoints)
+npx wrangler secret put GMAIL_APP_PASSWORD   # Google app password for GMAIL_USER (see Email provider)
+npx wrangler secret put RESEND_API_KEY       # optional fallback, from https://resend.com/api-keys
+npx wrangler secret put ALERT_API_TOKEN      # optional: protects the manual /api/alerts/check trigger
 
 # 4. Deploy
 npx wrangler deploy
 ```
 
-After deploying, note the worker URL (e.g. `https://stock-pulse-alerts.<your-subdomain>.workers.dev`) and update `ALERTS_WORKER_URL` in `app.js`. If you set an `ALERT_API_TOKEN`, also set it as `ALERTS_API_TOKEN` in `app.js`.
+After deploying, note the worker URL (e.g. `https://stock-pulse-alerts.<your-subdomain>.workers.dev`) and update `ALERTS_WORKER_URL` in `app.js`.
 
 ### Email provider
 
-Alerts use [Resend](https://resend.com) (100 emails/day free) — same provider as Pick Pocket. The default sender is `onboarding@resend.dev` (Resend's shared testing domain). Once you verify your own domain in Resend, update `FROM_EMAIL` in `wrangler.toml` to e.g. `alerts@yourdomain.com`.
+Alerts are sent through a dedicated Gmail account (`GMAIL_USER` in `wrangler.toml`) over SMTP using [worker-mailer](https://github.com/zou-yu/worker-mailer). It authenticates with a Google **app password** (requires 2-Step Verification on that account), stored as a Worker secret:
+
+```bash
+npx wrangler secret put GMAIL_APP_PASSWORD
+```
+
+Gmail allows roughly 500 recipients/day. If Gmail fails, the worker falls back to [Resend](https://resend.com) (`RESEND_API_KEY`); note that Resend's default `onboarding@resend.dev` sender only delivers to your own Resend account email.
 
 ### Manual trigger
 
@@ -150,18 +163,16 @@ curl -X POST "https://stock-pulse-alerts.<sub>.workers.dev/api/alerts/check?toke
 Use the **🔔 Price Alerts** card on the web app, or call the API directly:
 
 ```bash
-# View watchlist
-curl https://stock-pulse-alerts.<sub>.workers.dev/api/alerts
+# View a watchlist
+curl "https://stock-pulse-alerts.<sub>.workers.dev/api/alerts?email=you@example.com"
 
-# Add a ticker
+# Add a ticker (sends a confirmation email)
 curl -X POST https://stock-pulse-alerts.<sub>.workers.dev/api/alerts \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <TOKEN>" \
-  -d '{"ticker":"AAPL"}'
+  -d '{"email":"you@example.com","ticker":"AAPL"}'
 
 # Remove a ticker
-curl -X DELETE "https://stock-pulse-alerts.<sub>.workers.dev/api/alerts?ticker=AAPL" \
-  -H "Authorization: Bearer <TOKEN>"
+curl -X DELETE "https://stock-pulse-alerts.<sub>.workers.dev/api/alerts?email=you@example.com&ticker=AAPL"
 ```
 
 ## License

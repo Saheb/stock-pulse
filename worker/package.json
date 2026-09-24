@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "wrangler": "^3.0.0"
+  },
+  "dependencies": {
+    "worker-mailer": "^1.2.1"
   }
 }

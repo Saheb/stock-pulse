@@ -1,6 +1,8 @@
 name = "stock-pulse-alerts"
 main = "src/index.js"
 compatibility_date = "2024-09-25"
+# worker-mailer (Gmail SMTP over TCP sockets) needs Node compat.
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 # Cron trigger: weekdays (Mon-Fri) at 22:00 UTC (~5pm ET, after US market close).
@@ -18,13 +20,18 @@ binding = "ALERT_STATE"
 id = "529ad954a44142c7882a37012d0a2447"
 
 # Secrets / vars — set with:
-#   npx wrangler secret put RESEND_API_KEY       (from https://resend.com/api-keys)
-#   npx wrangler secret put RECIPIENT_EMAIL
-#   npx wrangler secret put ALERT_API_TOKEN      (optional: protects watchlist endpoints)
+#   npx wrangler secret put GMAIL_APP_PASSWORD   (Google app password for GMAIL_USER; primary sender)
+#   npx wrangler secret put RESEND_API_KEY       (from https://resend.com/api-keys; fallback sender)
+#   npx wrangler secret put ALERT_API_TOKEN      (optional: protects the manual /api/alerts/check trigger)
 [vars]
+# App owner: gets a notification when a new email address signs up, and inherits the
+# pre-multi-user watchlist (the old shared "tickers" key is migrated to this email).
 RECIPIENT_EMAIL = "sahebmotiani@gmail.com"
-# onboarding@resend.dev is Resend's shared testing sender. Use your own verified
-# domain (e.g. alerts@yourdomain.com) once configured in Resend.
+# Primary sender: alerts go out from this Gmail account via SMTP.
+GMAIL_USER = "stockpulse37@gmail.com"
+# Fallback sender (Resend). onboarding@resend.dev is Resend's shared testing sender and can ONLY deliver to the
+# Resend account owner's address. To email anyone else, verify a domain in Resend and
+# set this to e.g. alerts@yourdomain.com.
 FROM_EMAIL = "onboarding@resend.dev"
 FROM_NAME = "StockPulse Alerts"
 MA_PERIODS = "200,365"

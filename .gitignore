@@ -18,3 +18,7 @@ Thumbs.db
 *.log
 
 .kilo/
+
+# Local secrets
+.env
+.dev.vars
